@@ -1,0 +1,425 @@
+%{
+#include "output.hpp"
+#include "bp.hpp"
+using namespace std;
+int yylex();
+void yyerror(const char*);
+#include "parser.hpp"
+stack<SymbolTable> scopes;
+stack<int> offsets;
+RetType* expectedReturnType;
+stack<bool> breakables;
+stack<bool> defaults;
+extern int yylineno;
+Id* currentFunctionId;
+Formals* currentFunctionFormals;
+bool allowStrings;
+stack<Register> registerPool;
+%}
+
+%token VOID
+%token INT;
+%token BYTE;
+%token B;
+%token BOOL;
+%left AND;
+%left OR;
+%right NOT;
+%token TRUE;
+%token FALSE;
+%token RETURN;
+%token WHILE;
+%token SWITCH;
+%token CASE;
+%token BREAK;
+%token DEFAULT;
+%left COLON;
+%token SC;
+%token COMMA;
+%left LPAREN;
+%left RPAREN;
+%nonassoc ELSE;
+%token IF;
+%left LBRACE;
+%left RBRACE;
+%right ASSIGN;
+%nonassoc RELOP;
+%token PLUS;
+%token MINUS;
+%token DIV;
+%token MUL;
+%left PLUS
+%left MINUS;
+%left DIV;
+%left MUL;
+%token ID;
+%token NUM;
+%token STRING;
+
+
+%%
+
+
+Program : M Funcs {
+    Node* prog = new Program((FuncList*)$2);
+    //printScope(scopes.top());
+    scopes.pop();
+    offsets.pop();
+    delete prog;
+};
+M : /*epsilon*/ {
+    initializeRegisterPool(registerPool);
+    initializeScopes(scopes,offsets);
+};
+Funcs : /*epsilon*/{
+    $$ = new FuncList();
+};
+Funcs : FuncDecl Funcs {
+    $$ = new FuncList((FuncList*)$2,(Func*)$1);
+};
+
+AddFuncSymbol : {
+    addFuncSymbol(scopes,offsets,expectedReturnType,currentFunctionId,currentFunctionFormals,yylineno);
+}
+
+Id : ID {
+    $$ = $1;
+    currentFunctionId = (Id*)$1;
+}
+
+FuncDecl : RetType Id LPAREN Formals AddFuncSymbol NewFunctionScope RPAREN LBRACE Statements RBRACE{
+    Func* func = new Func((RetType*)$1,(Id*)$2,(Formals*)$4,(Statements*)$9);
+    $$ = func;
+    //printScope(scopes.top());
+    scopes.pop();
+    offsets.pop();
+};
+NewFunctionScope : /*epsilon*/ {
+    //open new scope for a function
+    saveFramePointer();
+    addScope(scopes,offsets);
+    addFormalsToScope(scopes,offsets,currentFunctionFormals,yylineno);
+};
+
+NewScope : /*epsilon*/ {
+    //open new scope for a function
+    addScope(scopes,offsets);
+};
+RetType : Type{
+    RetType* ret = new RetType((Type*)$1);
+    $$ = ret;
+    expectedReturnType = ret;
+};
+RetType : VOID {
+    RetType* ret = new RetType((Void*)$1);
+    $$ = ret;
+    expectedReturnType = ret;
+};
+Formals : /*epsilon*/{
+    Formals* formals = new Formals();
+    $$ = formals;
+    currentFunctionFormals = formals;
+};
+Formals : FormalsList{
+    Formals* formals = new Formals((FormalsList*)$1);
+    $$ = formals;
+    currentFunctionFormals = formals;
+    //we want to add the formals to the function scope
+};
+FormalsList : FormalDecl {
+    $$ = new FormalsList((FormalDecl*)$1);
+};
+FormalsList : FormalDecl COMMA FormalsList{
+    $$ = new FormalsList((FormalsList*)$3,(FormalDecl*)$1);
+};
+FormalDecl : Type ID{
+    $$ = new FormalDecl((Type*)$1,(Id*)$2);
+};
+Statements : Statement{
+    $$ = new Statements((Statement*)$1);
+};
+Statements : Statements Statement{
+    $$ = new Statements((Statements*)$1,(Statement*)$2);
+};
+Statement : LBRACE NewScope Statements RBRACE{
+    $$ = new Statement((Statements*)$3);
+    //printScope(scopes.top());
+    scopes.pop();
+    offsets.pop();
+};
+Statement : Type ID SC{
+    $$ = new Statement((Type*) $1,(Id*)$2);
+    addVariableToScope(scopes,offsets,(Type*) $1,(Id*) $2,yylineno);
+};
+Statement : Type ID ASSIGN Exp SC{
+    $$ = new Statement((Type*) $1,(Id*)$2,(Exp*)$4);
+    addVariableToScope(scopes,offsets,(Type*) $1,(Id*) $2,yylineno);
+};
+Statement : ID ASSIGN Exp SC{
+    $$ = new Statement((Id*)$1,(Exp*)$3);
+};
+Statement : Call SC{
+    $$ = new Statement((Call*)$1);
+};
+Statement : RETURN SC{
+    if(expectedReturnType->type != "VOID"){
+        errorMismatch(yylineno);
+        exit(0);
+    }
+    $$ = new Statement((Return*)$1);
+};
+Statement : RETURN Exp SC{
+    if(expectedReturnType->type != ((Exp*)$2)->type){
+        if ((expectedReturnType->type != "INT" && ((Exp*)$2)->type != "BYTE") ) {
+            errorMismatch(yylineno);
+            exit(0);
+        }
+    }
+    $$ = new Statement((Return*)$1,(Exp*)$2);
+};
+Statement : IF LPAREN ifExp RPAREN M_IF NewScope Statement ExitScope{
+    ((Statement*)$7)->bplists.quad=((Statement*)$5)->bplists.quad;
+    $$ = new Statement((If*)$1,(Exp*)$3,(Statement*)$7);
+};
+
+ExitScope : /*epsilon*/{
+    //printScope(scopes.top());
+    scopes.pop();
+    offsets.pop();
+};
+
+M_IF : /*epsilon*/ {
+    $$ = new Statement();
+    ((Statement*)$$)->bplists.quad= CodeBuffer::instance().next();
+};
+
+N_IF : /*epsilon*/ {
+    $$ = new Statement();
+    ((Statement*)$$)->bplists.quad= CodeBuffer::instance().next();
+    ((Statement*)$$)->bplists.nextList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+};
+
+Statement : IF LPAREN ifExp RPAREN M_IF NewScope Statement ExitScope ELSE N_IF M_IF NewScope Statement{
+    ((Statement*)$7)->bplists.quad=((Statement*)$5)->bplists.quad;
+    ((Statement*)$13)->bplists.quad=((Statement*)$11)->bplists.quad;
+    $$ = new Statement((Exp*)$3,(Statement*)$7,(Statement*)$10,(Statement*)$13);
+    //printScope(scopes.top());
+    scopes.pop();
+    offsets.pop();
+    delete $10;
+};
+
+ifExp : Exp {
+    if(((Exp*)$1)->type != "BOOL"){
+        errorMismatch(yylineno);
+        exit(0);
+    }
+};
+
+Statement : WHILE AllowBreak LPAREN M_WHILE WhileExp RPAREN NewScope N_WHILE Statement{
+    ((Exp*)$5)->bplists.quad=((Exp*)$4)->bplists.quad;
+    ((Statement*)$9)->bplists.quad=((Statement*)$8)->bplists.quad;
+    $$ = new Statement((Exp*)$5,(Statement*)$9);
+    //printScope(scopes.top());
+    scopes.pop();
+    offsets.pop();
+    breakables.pop();
+};
+
+M_WHILE : /*epxilon*/{
+     $$ = new Exp();
+    ((Exp*)$$)->bplists.quad= CodeBuffer::instance().next();
+};
+
+N_WHILE : /*epsilon*/{
+     $$ = new Statement();
+    ((Statement*)$$)->bplists.quad= CodeBuffer::instance().next();
+};
+
+WhileExp : Exp {
+    if(((Exp*)$1)->type != "BOOL"){
+        errorMismatch(yylineno);
+        exit(0);
+    }
+};
+
+AllowBreak : /*epsilon*/{
+    breakables.push(true);
+}
+Statement : BREAK SC{
+    if(canBreak(breakables)){
+        $$ = new Statement();
+    }else{
+        errorUnexpectedBreak(yylineno);
+        exit(0);
+    }
+    ((Statement*)$$)->bplists.breakList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+};
+
+N_Switch : /*epsilon*/ {
+    $$ = new Statement();
+    ((Statement*)$$)->bplists.quad= CodeBuffer::instance().next();
+    ((Statement*)$$)->bplists.nextList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+};
+
+
+
+Statement : SWITCH LPAREN SwitchExp N_Switch RPAREN LBRACE NewScope CaseList RBRACE SC{
+    $$ = new Statement((Exp*)$3,(Statement*) $4,(CaseList*)$8);
+    //printScope(scopes.top());
+    scopes.pop();
+    offsets.pop();
+    defaults.pop();
+};
+
+SwitchExp : Exp {
+    if(((Exp*)$1)->type != "INT" && ((Exp*)$1)->type != "BYTE"){
+        errorMismatch(yylineno);
+        exit(0);
+    }
+    defaults.push(false);
+};
+
+CaseList : CaseList CaseStatement{
+    $$ = new CaseList((CaseList*)$1,(CaseStatement*)$2);
+};
+CaseList : CaseStatement{
+    $$ = new CaseList((CaseStatement*)$1);
+};
+
+M_Case : /*epsilon*/ {
+    $$ = new Statement();
+    ((Statement*)$$)->bplists.quad= CodeBuffer::instance().next();
+};
+
+CaseStatement : CaseDec M_Case Statements{
+    ((Statements*)$3)->bplists.quad = ((Statement*)$2)->bplists.quad;
+    $$ = new CaseStatement((CaseDec*)$1,(Statements*)$3);
+    ((CaseStatement*)$$)->bplists.quad = ((Statement*)$2)->bplists.quad;
+    breakables.pop();
+    delete $2;
+};
+CaseStatement : CaseDec M_Case{
+    $$ = new CaseStatement((CaseDec*)$1);
+     ((CaseStatement*)$$)->bplists.quad = ((Statement*)$2)->bplists.quad;
+    breakables.pop();
+    delete $2;
+};
+CaseDec : AllowBreak CASE NUM COLON{
+    $$ = new CaseDec((Num*)$3);
+};
+CaseDec : AllowBreak CASE NUM B COLON{
+    $$ = new CaseDec((Num*)$3,(b*)$4);
+};
+
+CaseDec : AllowBreak DEFAULT COLON{
+    $$ = new CaseDec();
+    if(defaults.top()==true){
+        errorTooManyDefaults(yylineno);
+        exit(0);
+    }else{
+        defaults.pop();
+        defaults.push(true);
+    }
+};
+
+FuncId : ID {
+    $$ = $1;
+    if(((Id*)$1)->text == "print"){
+        allowStrings = true;
+    }
+};
+
+Call : FuncId LPAREN ExpList RPAREN{
+    $$ = new Call((Id*)$1,(ExpList*)$3);
+    allowStrings = false;
+};
+Call : FuncId LPAREN RPAREN{
+    $$ = new Call((Id*)$1);
+};
+ExpList : Exp{
+    $$ = new ExpList((Exp*)$1);
+};
+ExpList : Exp COMMA ExpList{
+    $$ = new ExpList((Exp*)$1,(ExpList*)$3);
+};
+Type : INT{
+    $$ = new Type((Int*)$1);
+};
+Type : BYTE{
+    $$ = new Type((Byte*)$1);
+};
+Type : BOOL{
+    $$ = new Type((Bool*)$1);
+};
+Exp : LPAREN Exp RPAREN{
+    $$ = new Exp((Exp*)$2);
+};
+Exp : Exp PLUS Exp{
+    $$ = new Exp((Exp*)$1,(Binop*)$2,(Exp*)$3);
+};
+
+Exp : Exp MINUS Exp{
+    $$ = new Exp((Exp*)$1,(Binop*)$2,(Exp*)$3);
+};
+Exp : Exp MUL Exp{
+    $$ = new Exp((Exp*)$1,(Binop*)$2,(Exp*)$3);
+};
+Exp : Exp DIV Exp{
+    $$ = new Exp((Exp*)$1,(Binop*)$2,(Exp*)$3);
+};
+
+Exp : ID {
+    $$ = new Exp((Id*)$1);
+};
+Exp : Call{
+    $$ = new Exp((Call*)$1);
+}; 
+Exp :NUM {
+    $$ = new Exp((Num*)$1);
+};
+Exp : NUM B {
+    $$ = new Exp((Num*)$1,(b*)$2);
+};
+Exp : STRING {
+    $$ = new Exp((String*)$1); 
+};
+Exp : TRUE {
+    $$ = new Exp((True*)$1);
+};
+Exp : FALSE {
+    $$ = new Exp((False*)$1);
+};
+
+M_EXP : /*epsilon*/ {
+    $$ = new Exp();
+    ((Exp*)$$)->bplists.quad= CodeBuffer::instance().next();
+};
+
+Exp : NOT Exp {
+    $$ = new Exp((Not*)$1,(Exp*)$2);
+}; 
+Exp : Exp AND M_EXP Exp {
+    ((Exp*)$4)->bplists.quad=((Exp*)$3)->bplists.quad;
+    $$ = new Exp((Exp*)$1,(And*)$2,(Exp*)$4);
+    delete $3;
+};
+Exp : Exp OR M_EXP Exp {
+    ((Exp*)$4)->bplists.quad=((Exp*)$3)->bplists.quad;
+    $$ = new Exp((Exp*)$1,(Or*)$2,(Exp*)$4);
+    delete $3;
+};
+Exp : Exp RELOP Exp {
+    $$ = new Exp((Exp*)$1,(Relop*)$2,(Exp*)$3);
+};
+
+%%
+
+void yyerror(const char*) {
+    errorSyn(yylineno);
+    exit(0);
+}
+
+int main(){
+    return yyparse();
+}

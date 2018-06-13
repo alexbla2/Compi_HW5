@@ -1,0 +1,919 @@
+#include "parser.hpp"
+
+void saveUsedRegisters(stack<Register> unUsed){
+  bool used[26];
+  for(int i=0;i<26;i++){
+    used[i]=true;
+  }
+  while(!unUsed.empty()){
+    Register reg = unUsed.top();
+    used[reg.number()]=false;
+    unUsed.pop();
+  }
+  for(int i=8;i<26;i++){
+    if(used[i]==true){
+      CodeBuffer::instance().emit("subu $sp,$sp,4");
+      CodeBuffer::instance().emit("sw $"+intToString(i)+",0($sp)");
+    }
+  }
+  CodeBuffer::instance().emit("subu $sp,$sp,4");
+  CodeBuffer::instance().emit("sw $fp,0($sp)");
+  CodeBuffer::instance().emit("subu $sp,$sp,4");
+  CodeBuffer::instance().emit("sw $ra,0($sp)");
+}
+
+void restoreUsedRegisters(stack<Register> unUsed){
+  CodeBuffer::instance().emit("lw $ra,0($sp)");
+  CodeBuffer::instance().emit("addu $sp,$sp,4");
+  CodeBuffer::instance().emit("lw $fp,0($sp)");
+  CodeBuffer::instance().emit("addu $sp,$sp,4");
+  bool used[26];
+  for(int i=0;i<26;i++){
+    used[i]=true;
+  }
+  while(!unUsed.empty()){
+    Register reg = unUsed.top();
+    used[reg.number()]=false;
+    unUsed.pop();
+  }
+  for(int i=25;i>=8;i--){
+    if(used[i]==true){
+      CodeBuffer::instance().emit("lw $"+intToString(i)+",0($sp)");
+      CodeBuffer::instance().emit("addu $sp,$sp,4");      
+    }
+  }
+}
+
+void saveFramePointer(){
+  CodeBuffer::instance().emit("move $fp,$sp");//save frame pointer.
+  CodeBuffer::instance().emit("subu $fp,$fp,4");//save frame pointer.
+}
+
+std::string intToString ( int num ){
+   std::ostringstream ss;
+   ss << num;
+   return ss.str();
+}
+
+void initializeRegisterPool(stack<Register>& pool){
+  for(int i=8;i<26;++i){
+    pool.push(Register(string("$"+intToString(i)),i));
+  }
+}
+
+void initializeScopes(stack<SymbolTable>& scopes, stack<int>& offsets) {
+  allowStrings = false;
+  SymbolTable globalScope;
+  scopes.push(globalScope);
+  offsets.push(0);
+  std::vector<string> argTypesForPrint;
+  argTypesForPrint.push_back("STRING");
+  Symbol s("print", makeFunctionType("VOID", argTypesForPrint), offsets.top(),
+           argTypesForPrint, "VOID");
+  CodeBuffer::instance().emit("print:");
+  CodeBuffer::instance().emit("lw $a0,0($sp)\nli $v0,4\nsyscall\njr $ra");
+  scopes.top().push_back(s);
+  std::vector<string> argTypesForPrinti;
+  argTypesForPrinti.push_back("INT");
+  s = Symbol("printi", makeFunctionType("VOID", argTypesForPrinti),
+             offsets.top(), argTypesForPrinti, "VOID");
+  CodeBuffer::instance().emit("printi:");
+             CodeBuffer::instance().emit("lw $a0,0($sp)\nli $v0,1\nsyscall\njr $ra");
+  scopes.top().push_back(s);
+  string label = "divByZero";
+  CodeBuffer::instance().emitData(label+": "+".asciiz \"Error division by zero\\n\"");
+  CodeBuffer::instance().emit("divException:");
+  CodeBuffer::instance().emit("la $a0,divByZero\nli $v0,4\nsyscall\n");
+  CodeBuffer::instance().emit("li $v0,10\nsyscall\n");
+}
+
+void addScope(stack<SymbolTable>& scopes, stack<int>& offsets) {
+  SymbolTable newScope;
+  scopes.push(newScope);
+  offsets.push(offsets.top());
+}
+
+void addFuncSymbol(stack<SymbolTable>& scopes, stack<int>& offsets,
+                   RetType* ret, Id* id, Formals* formals, int lineno) {
+  if (isDeclared(scopes, id)) {
+    errorDef(lineno, id->text);
+    exit(0);
+  }
+  std::vector<string> argTypes;
+  for (vector<FormalDecl*>::reverse_iterator i = formals->formals.rbegin();
+       i != formals->formals.rend(); ++i) {
+    argTypes.push_back((*i)->type);
+  }
+  Symbol s(id->text, makeFunctionType(ret->type, argTypes), offsets.top(),
+           argTypes, ret->type);
+  scopes.top().push_back(s);
+  CodeBuffer::instance().emit(id->text+":");
+}
+
+void printScope(SymbolTable& table) {
+  //endScope();
+  for (SymbolTable::iterator i = table.begin(); i != table.end(); i++) {
+    printID((*i).name, (*i).offset, (*i).type);
+  }
+}
+
+void addFormalToScope(stack<SymbolTable>& scopes, stack<int>& offsets, Symbol s,
+                      int lineno) {
+  Id id(s.name);
+  if (isDeclared(scopes, &id)) {
+    errorDef(lineno, id.text);
+    exit(0);
+  }
+  scopes.top().push_back(s);
+}
+
+void addFormalsToScope(stack<SymbolTable>& scopes, stack<int>& offsets,
+                       Formals* formals, int lineno) {
+  int offset = -1;
+  for (vector<FormalDecl*>::reverse_iterator i = formals->formals.rbegin();
+       i != formals->formals.rend(); ++i) {
+    Symbol s((*i)->id, (*i)->type, offset--);
+    addFormalToScope(scopes, offsets, s, lineno);
+  }
+}
+
+void addVariableToScope(stack<SymbolTable>& scopes, stack<int>& offsets,
+                        Type* type, Id* id, int lineno) {
+  if (isDeclared(scopes, id)) {
+    errorDef(lineno, id->text);
+    exit(0);
+  }
+  Symbol s(id->text, type->type, offsets.top());
+  scopes.top().push_back(s);
+  int offset = offsets.top() + 1;
+  offsets.pop();
+  offsets.push(offset);
+}
+
+SymbolTable::iterator findId(SymbolTable& table, string id) {
+  for (SymbolTable::iterator i = table.begin(); i != table.end(); ++i) {
+    if ((*i).name == id) {
+      return i;
+    }
+  }
+  return table.end();
+}
+
+bool canBreak(stack<bool>& breakables) { return !(breakables.empty()); }
+
+bool isDeclared(stack<SymbolTable>& scopes, Id* id) {
+  stack<SymbolTable> scopes_copy = scopes;
+  while (!scopes_copy.empty()) {
+    if (findId(scopes_copy.top(), (id->text)) != scopes_copy.top().end()) {
+      return true;
+    }
+    scopes_copy.pop();
+  }
+  return false;
+}
+
+string getTypeById(stack<SymbolTable>& scopes, Id* id) {
+  stack<SymbolTable> scopes_copy = scopes;
+  while (!scopes_copy.empty()) {
+    if (findId(scopes_copy.top(), (id->text)) != scopes_copy.top().end()) {
+      return (*findId(scopes_copy.top(), (id->text))).type;
+    }
+    scopes_copy.pop();
+  }
+  return "";
+}
+
+Symbol getSymbolById(stack<SymbolTable>& scopes, string id) {
+  stack<SymbolTable> scopes_copy = scopes;
+  while (!scopes_copy.empty()) {
+    if (findId(scopes_copy.top(), id) != scopes_copy.top().end()) {
+      return (*findId(scopes_copy.top(), (id)));
+    }
+    scopes_copy.pop();
+  }
+  return Symbol();
+}
+
+bool validTypes(vector<string>& types1,vector<string>& types2){
+  if(types1.size()!=types2.size()){
+    return false;
+  }
+  for(int i=0;i<types1.size();++i){
+    if(types1[i]!=types2[i]){
+      if((types1[i] == "INT" && types2[i] == "BYTE")){
+          continue;
+      }
+      else{
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+Program::Program(FuncList* funcs) {
+  /*
+  cout<<"print all free registers"<<endl;
+  while(!registerPool.empty()){
+    cout << registerPool.top().name() <<endl;
+    registerPool.pop();
+  }*/
+  CodeBuffer::instance().printDataBuffer();  
+  cout<<".globl main"<<endl;
+  CodeBuffer::instance().printCodeBuffer();  
+  this->children.push_back(funcs);
+  this->funcs = funcs->funcs;
+  Symbol mainFuncSymbol = getSymbolById(scopes,"main");
+  if(mainFuncSymbol.name!="main"){
+    errorMainMissing();
+    exit(0);
+  }else if(!(mainFuncSymbol.args.empty())){
+    errorMainMissing();
+    exit(0);
+  }else if(mainFuncSymbol.ret!="VOID"){
+    errorMainMissing();
+    exit(0);
+  }
+
+}
+
+FuncList::FuncList(FuncList* list, Func* func) {
+  this->children.push_back(list);
+  this->children.push_back(func);
+  this->funcs = vector<Func*>(list->funcs);
+  this->funcs.push_back(func);
+}
+FuncList::FuncList() { this->funcs = vector<Func*>(); }  // for epsilon rule
+
+Func::Func(RetType* ret, Id* id, Formals* formals, Statements* statements) {
+  // we want to push all those childrens
+  this->children.push_back(ret);
+  this->children.push_back(id);
+  this->children.push_back(formals);
+  this->children.push_back(statements);
+  this->id = id->text;
+  this->ret = ret->type;
+  this->formals = formals;
+  int offset = offsets.top();
+  if(offset>0){
+    CodeBuffer::instance().emit("addu $sp,$sp,"+intToString(offset*4));
+  }
+  CodeBuffer::instance().emit("jr $ra");
+}
+
+Void::Void() { this->text = string("VOID"); }
+
+RetType::RetType(Void* voidNode) {
+  this->children.push_back(voidNode);
+  type = voidNode->text;
+}
+RetType::RetType(Type* type) {
+  this->children.push_back(type);
+  this->type = type->type;
+}
+
+Formals::Formals() {}
+
+Formals::Formals(FormalsList* formalsList) {
+  this->children.push_back(formalsList);
+  this->formals = formalsList->list;
+}
+
+FormalsList::FormalsList(FormalDecl* formalDecl) {
+  this->children.push_back(formalDecl);
+  this->list = vector<FormalDecl*>();
+  this->list.push_back(formalDecl);
+}
+FormalsList::FormalsList(FormalsList* formalsList, FormalDecl* formalsDecl) {
+  this->children.push_back(formalsList);
+  this->children.push_back(formalsDecl);
+  this->list = vector<FormalDecl*>(formalsList->list);
+  this->list.push_back(formalsDecl);
+}
+
+FormalDecl::FormalDecl(Type* type, Id* id) {
+  this->type = type->type;
+  this->id = id->text;
+  this->children.push_back(type);
+  this->children.push_back(id);
+}
+
+Type::Type(Int* type) {
+  this->children.push_back(type);
+  this->type = type->type;
+}
+Type::Type(Bool* type) {
+  this->children.push_back(type);
+  this->type = type->type;
+}
+Type::Type(Byte* type) {
+  this->children.push_back(type);
+  this->type = type->type;
+}
+
+Statements::Statements() {}
+
+
+Statements::Statements(Statement* statement) {
+  this->children.push_back(statement);
+  this->bplists.quad = CodeBuffer::instance().next();
+  CodeBuffer::instance().bpatch(statement->bplists.nextList,this->bplists.quad);
+  this->bplists.breakList = statement->bplists.breakList;
+}
+Statements::Statements(Statements* statements, Statement* statement) {
+  this->children.push_back(statements);
+  this->children.push_back(statement);
+  this->bplists.quad = CodeBuffer::instance().next();
+  CodeBuffer::instance().bpatch(statement->bplists.nextList,this->bplists.quad);
+  this->bplists.breakList = CodeBuffer::instance().merge(statements->bplists.breakList,statement->bplists.breakList);
+}
+
+Statement::Statement() {
+  //this->bplists.quad = CodeBuffer::instance().next();
+}
+
+Statement::Statement(Return* ret){
+  //this->bplists.quad = CodeBuffer::instance().next();
+  CodeBuffer::instance().emit("jr $ra");
+}
+
+Statement::Statement(Statements* statements) {
+  this->children.push_back(statements);
+  //this->bplists.quad = CodeBuffer::instance().next();
+  this->bplists.nextList=statements->bplists.nextList;
+  this->bplists.trueList=statements->bplists.trueList;
+  this->bplists.falseList=statements->bplists.falseList;
+  this->bplists.breakList = statements->bplists.breakList;
+}
+
+Statement::Statement(Exp* expression) { 
+  this->children.push_back(expression);
+  //this->bplists.quad = CodeBuffer::instance().next();
+ }
+
+Statement::Statement(Return* ret,Exp* expression) { 
+  this->children.push_back(expression);
+  this->bplists.quad = CodeBuffer::instance().next();
+  int offset = offsets.top();
+  if(offset>0){
+    CodeBuffer::instance().emit("addu $sp,$sp,"+intToString(offset*4));
+  }
+  if(expression->type == "BOOL"){
+    string trueLabel = CodeBuffer::instance().next();
+    CodeBuffer::instance().emit("li $v0,1");
+    vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+    string falseLabel = CodeBuffer::instance().next();
+    CodeBuffer::instance().emit("li $v0,0");
+    nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
+    string next = CodeBuffer::instance().next();
+    CodeBuffer::instance().bpatch(nexts,next);
+    CodeBuffer::instance().bpatch(expression->bplists.trueList,trueLabel);
+    CodeBuffer::instance().bpatch(expression->bplists.falseList,falseLabel);
+  }else{
+    CodeBuffer::instance().emit("move $v0,"+expression->reg.name());
+  }
+  CodeBuffer::instance().emit("jr $ra");
+}
+
+Statement::Statement(Call* call) { 
+  this->children.push_back(call);
+  //this->bplists.quad = CodeBuffer::instance().next();
+}
+
+Statement::Statement(Type* type, Id* id) {
+  this->children.push_back(type);
+  this->children.push_back(id);
+  //this->bplists.quad = CodeBuffer::instance().next();
+  if (isDeclared(scopes, id)) {
+    errorDef(yylineno, id->text);
+    exit(0);
+  }
+    //storing result in a temp register:
+  Register reg = registerPool.top();
+  registerPool.pop(); 
+  if (type->type == "INT" || type->type == "BYTE") {
+    CodeBuffer::instance().emit("li " +reg.name()+",0");
+    CodeBuffer::instance().emit("subu $sp,$sp,4");//add place for local variable in the stack.
+    CodeBuffer::instance().emit("sw "+reg.name()+",0($sp)");//push to the stack.
+  }else if(type->type == "BOOL"){
+    CodeBuffer::instance().emit("li " +reg.name()+",0");
+    CodeBuffer::instance().emit("subu $sp,$sp,4");//add place for local variable in the stack.
+    CodeBuffer::instance().emit("sw "+reg.name()+",0($sp)");//push to the stack.
+  }
+  //adding local variable to stack:
+  registerPool.push(reg);
+}
+
+Statement::Statement(Id* id, Exp* expression) {
+  this->children.push_back(id);
+  this->children.push_back(expression);
+  //this->bplists.quad = CodeBuffer::instance().next();
+  if (!isDeclared(scopes, id)) {
+    errorUndef(yylineno, id->text);
+    exit(0);
+  }else if(getSymbolById(scopes,id->text).isFunc){
+    errorUndef(yylineno, id->text);
+    exit(0);
+  }
+  if (getTypeById(scopes, id) != expression->type) {
+    if (getTypeById(scopes, id) == "INT" && expression->type == "BYTE") {
+      // can assign byte to int
+    } else {
+      errorMismatch(yylineno);
+      exit(0);
+    }
+  }
+  Symbol idSymbol = getSymbolById(scopes,id->text);
+  int offset = idSymbol.offset;
+  //storing result in a temp register:
+  Register reg = registerPool.top();
+  registerPool.pop(); 
+  if (idSymbol.type == "INT" || idSymbol.type == "BYTE") {
+    CodeBuffer::instance().emit("move " +reg.name()+","+expression->reg.name());
+    registerPool.push(expression->reg);//returning temp register to pool.
+    CodeBuffer::instance().emit("sw "+reg.name()+","+intToString((-offset)*4)+"($fp)");//push to the stack.
+  }else if(idSymbol.type == "BOOL"){
+    string trueLabel = CodeBuffer::instance().next();
+    CodeBuffer::instance().emit("li " +reg.name()+",1");
+    vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+    string falseLabel = CodeBuffer::instance().next();
+    CodeBuffer::instance().emit("li " +reg.name()+",0");
+    nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
+    string next = CodeBuffer::instance().next();
+    CodeBuffer::instance().bpatch(nexts,next);
+    CodeBuffer::instance().bpatch(expression->bplists.trueList,trueLabel);
+    CodeBuffer::instance().bpatch(expression->bplists.falseList,falseLabel);
+    CodeBuffer::instance().emit("sw "+reg.name()+","+intToString((-offset)*4)+"($fp)");//push to the stack.
+  }
+  //adding local variable to stack:
+  registerPool.push(reg);
+}
+
+Statement::Statement(Exp* expression,Statement* statement) {
+  this->children.push_back(expression);
+  this->children.push_back(statement);
+  //this->bplists.quad = CodeBuffer::instance().next();
+  CodeBuffer::instance().bpatch(expression->bplists.trueList,statement->bplists.quad);
+  this->bplists.falseList=CodeBuffer::instance().merge(expression->bplists.falseList,statement->bplists.nextList);
+  this->bplists.falseList=CodeBuffer::instance().merge(expression->bplists.falseList,statement->bplists.breakList);
+  CodeBuffer::instance().emit("j "+expression->bplists.quad);
+  CodeBuffer::instance().bpatch(this->bplists.falseList,CodeBuffer::instance().next());  
+}
+
+Statement::Statement(If* ifNode,Exp* expression, Statement* statement) {
+  this->children.push_back(expression);
+  this->children.push_back(statement);
+  //this->bplists.quad = CodeBuffer::instance().next();
+  CodeBuffer::instance().bpatch(expression->bplists.trueList,statement->bplists.quad);
+  this->bplists.nextList = CodeBuffer::instance().merge(expression->bplists.falseList,statement->bplists.nextList);
+  this->bplists.breakList = statement->bplists.breakList;
+}
+
+Statement::Statement(Type* type, Id* id, Exp* expression) {
+  this->children.push_back(type);
+  this->children.push_back(id);
+  this->children.push_back(expression);
+  //this->bplists.quad = CodeBuffer::instance().next();
+  if (isDeclared(scopes, id)) {
+    errorDef(yylineno, id->text);
+    exit(0);
+  }
+  if (type->type != expression->type) {
+    if (type->type == "INT" && expression->type == "BYTE") {
+      // can assign byte to int
+    } else { 
+      errorMismatch(yylineno);
+      exit(0);
+    }
+  }
+  //storing result in a temp register:
+  Register reg = registerPool.top();
+  registerPool.pop(); 
+  if (type->type == "INT" || type->type == "BYTE") {
+    CodeBuffer::instance().emit("move " +reg.name()+","+expression->reg.name());
+    registerPool.push(expression->reg);//returning temp register to pool.
+    CodeBuffer::instance().emit("subu $sp,$sp,4");//add place for local variable in the stack.
+    CodeBuffer::instance().emit("sw "+reg.name()+",0($sp)");//push to the stack.
+  }else if(type->type == "BOOL"){
+    string trueLabel = CodeBuffer::instance().next();
+    CodeBuffer::instance().emit("li " +reg.name()+",1");
+    vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+    string falseLabel = CodeBuffer::instance().next();
+    CodeBuffer::instance().emit("li " +reg.name()+",0");
+    nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
+    string next = CodeBuffer::instance().next();
+    CodeBuffer::instance().bpatch(nexts,next);
+    CodeBuffer::instance().bpatch(expression->bplists.trueList,trueLabel);
+    CodeBuffer::instance().bpatch(expression->bplists.falseList,falseLabel);
+    CodeBuffer::instance().emit("subu $sp,$sp,4");//add place for local variable in the stack.
+    CodeBuffer::instance().emit("sw "+reg.name()+",0($sp)");//push to the stack.
+  }
+  //adding local variable to stack:
+  registerPool.push(reg);
+}
+
+Statement::Statement(Exp* expression,Statement* N, CaseList* caseList) {
+  this->children.push_back(expression);
+  this->children.push_back(caseList);
+  //this->bplists.quad = CodeBuffer::instance().next();
+  vector<int> out = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));//go out
+  CodeBuffer::instance().bpatch(N->bplists.nextList,CodeBuffer::instance().next());
+  for(int i=0;i<caseList->valueList.size();++i){
+    if(caseList->valueList[i]=="DEFAULT"){
+       CodeBuffer::instance().makelist(CodeBuffer::instance().emit(
+      "j "+caseList->quadList[i]));
+    }else{
+      CodeBuffer::instance().makelist(CodeBuffer::instance().emit(
+      "beq "+expression->reg.name()+","+caseList->valueList[i]+","+caseList->quadList[i]));
+    }
+  }
+  string next = CodeBuffer::instance().next();
+  this->bplists.nextList = CodeBuffer::instance().merge(caseList->bplists.nextList,
+    CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
+  CodeBuffer::instance().bpatch(caseList->bplists.breakList,next);
+  CodeBuffer::instance().bpatch(out,next);
+}
+
+Statement::Statement(Exp* expression,Statement* ifStatment,
+  Statement* N,Statement* elseStatement) {
+  this->children.push_back(expression);
+  this->children.push_back(ifStatment);
+  this->children.push_back(elseStatement);
+  //this->bplists.quad = CodeBuffer::instance().next();
+  CodeBuffer::instance().bpatch(expression->bplists.trueList,ifStatment->bplists.quad);
+  CodeBuffer::instance().bpatch(expression->bplists.falseList,elseStatement->bplists.quad);
+  this->bplists.nextList=CodeBuffer::instance().merge(
+    CodeBuffer::instance().merge(ifStatment->bplists.nextList,elseStatement->bplists.nextList),
+    N->bplists.nextList);
+    this->bplists.breakList = CodeBuffer::instance().merge(ifStatment->bplists.breakList,elseStatement->bplists.breakList);
+}
+
+Statement::Statement(Exp* expression,Statement* ifStatment,Statement* elseStatement) {
+  this->children.push_back(expression);
+  this->children.push_back(ifStatment);
+  this->children.push_back(elseStatement);
+  //this->bplists.quad = CodeBuffer::instance().next();
+  this->bplists.breakList = CodeBuffer::instance().merge(ifStatment->bplists.breakList,elseStatement->bplists.breakList);
+}
+
+CaseList::CaseList(CaseList* caseList, CaseStatement* caseStatement) {
+  this->children.push_back(caseList);
+  this->children.push_back(caseStatement);
+  this->quadList = caseList->quadList;
+  this->valueList = caseList->valueList;
+  this->quadList.insert(this->quadList.end(),caseStatement->bplists.quad);
+  this->valueList.insert(this->valueList.end(),caseStatement->value);
+  this->bplists.nextList=CodeBuffer::instance().merge(
+      caseList->bplists.nextList,caseStatement->bplists.nextList);
+  this->bplists.breakList=CodeBuffer::instance().merge(
+      caseList->bplists.breakList,caseStatement->bplists.breakList);
+}
+
+CaseList::CaseList(CaseStatement* caseStatement) {
+  this->children.push_back(caseStatement);
+  this->quadList.insert(this->quadList.end(),caseStatement->bplists.quad);
+  this->valueList.insert(this->valueList.end(),caseStatement->value);
+  this->bplists.nextList=caseStatement->bplists.nextList;
+  this->bplists.breakList = caseStatement->bplists.breakList;
+}
+
+CaseStatement::CaseStatement(CaseDec* caseDec) {
+  this->children.push_back(caseDec);
+  this->value = caseDec->value;
+}
+
+CaseStatement::CaseStatement(CaseDec* caseDec, Statements* statements) {
+  this->children.push_back(caseDec);
+  this->children.push_back(statements);
+  this->bplists.nextList = statements->bplists.nextList;
+  this->value = caseDec->value;
+  this->bplists.breakList = statements->bplists.breakList;
+}
+
+CaseDec::CaseDec(Num* num) { 
+  this->isDefault=false;
+  this->children.push_back(num);
+  registerPool.push(num->reg);
+  this->value = intToString(num->value); 
+}
+
+CaseDec::CaseDec(Num* num, b* b) {
+  this->isDefault=false;
+  this->children.push_back(num);
+  this->children.push_back(b);
+  registerPool.push(num->reg);
+  this->value = intToString(num->value); 
+}
+ExpList::ExpList(Exp* expression) {
+  this->children.push_back(expression);
+  this->types = vector<string>();
+  this->types.push_back(expression->type);
+  if(expression->type=="BOOL"){
+    expression->reg = registerPool.top();
+    registerPool.pop();
+    string trueLabel = CodeBuffer::instance().next();
+    CodeBuffer::instance().emit("li "+expression->reg.name()+",1");
+    vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+    string falseLabel = CodeBuffer::instance().next();
+    CodeBuffer::instance().emit("li "+expression->reg.name()+",0");
+    nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
+    string next = CodeBuffer::instance().next();
+    CodeBuffer::instance().bpatch(nexts,next);
+    CodeBuffer::instance().bpatch(expression->bplists.trueList,trueLabel);
+    CodeBuffer::instance().bpatch(expression->bplists.falseList,falseLabel);
+  }
+  this->registers = vector<Register>();
+  this->registers.push_back(expression->reg);
+
+}
+
+ExpList::ExpList(Exp* expression, ExpList* expList) {
+  this->children.push_back(expression);
+  this->children.push_back(expList);
+  this->types = vector<string>();
+  this->types.push_back(expression->type);
+  for(int i=0; i<expList->types.size(); i++){
+    this->types.push_back(expList->types[i]);
+  }
+  if(expression->type=="BOOL"){
+    expression->reg = registerPool.top();
+    registerPool.pop();
+    string trueLabel = CodeBuffer::instance().next();
+    CodeBuffer::instance().emit("li "+expression->reg.name()+",1");
+    vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+    string falseLabel = CodeBuffer::instance().next();
+    CodeBuffer::instance().emit("li "+expression->reg.name()+",0");
+    nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
+    string next = CodeBuffer::instance().next();
+    CodeBuffer::instance().bpatch(nexts,next);
+    CodeBuffer::instance().bpatch(expression->bplists.trueList,trueLabel);
+    CodeBuffer::instance().bpatch(expression->bplists.falseList,falseLabel);
+  }
+  this->registers = vector<Register>();
+  this->registers.push_back(expression->reg);
+  for(int i=0; i<expList->registers.size(); i++){
+    this->registers.push_back(expList->registers[i]);
+  }
+}
+
+Call::Call(Id* id) {
+  stack<Register> registers = registerPool;
+  saveUsedRegisters(registers);
+  this->children.push_back(id);
+  if (!isDeclared(scopes, id)) {
+    errorUndefFunc(yylineno, id->text);
+    exit(0);
+  }
+  Symbol s = getSymbolById(scopes, id->text);
+  if (!(s.isFunc)) {
+    errorUndefFunc(yylineno, id->text);
+    exit(0);
+  } else if (!s.args.empty()) {
+    errorPrototypeMismatch(yylineno, id->text, s.args);
+    exit(0);
+  }
+  this->id = id->text;
+  int nubmerOfArguments = s.args.size();
+  CodeBuffer::instance().emit("jal "+id->text);
+  CodeBuffer::instance().emit("addu $sp,$sp,"+intToString(nubmerOfArguments*4));
+  restoreUsedRegisters(registers);
+}
+
+Call::Call(Id* id, ExpList* expList) {
+  stack<Register> registers = registerPool;
+  saveUsedRegisters(registers);
+  this->children.push_back(id);
+  this->children.push_back(expList);
+  if (!isDeclared(scopes, id)) {
+    errorUndefFunc(yylineno, id->text);
+    exit(0);
+  } else {
+    Symbol s = getSymbolById(scopes, id->text);
+    if (!(s.isFunc)) {
+      errorUndefFunc(yylineno, id->text);
+      exit(0);
+    } else if (!validTypes(s.args,expList->types)) {
+      /*
+      cout<<"expecting:"<<endl;
+      for (vector<string>::iterator i = s.args.begin();
+           i != s.args.end(); ++i) {
+            cout<<(*i)<<endl;
+      }
+      cout<<"found:"<<endl;
+      for (vector<string>::iterator i = expList->types.begin();
+           i != expList->types.end(); ++i) {
+            cout<<(*i)<<endl;
+      }*/
+      errorPrototypeMismatch(yylineno, id->text, s.args);
+      exit(0);
+    }
+  }
+  this->id = id->text;
+  Symbol s = getSymbolById(scopes, id->text);
+  int nubmerOfArguments = s.args.size();
+  //CodeBuffer::instance().emit("subu $sp,$sp,"+intToString(nubmerOfArguments*4));
+  for(vector<Register>::reverse_iterator i=expList->registers.rbegin();i!=expList->registers.rend();++i){
+    CodeBuffer::instance().emit("subu $sp,$sp,4");
+    CodeBuffer::instance().emit("sw "+(*i).name()+",0($sp)");//push to the stack.
+    registerPool.push((*i));
+  }
+  CodeBuffer::instance().emit("jal "+id->text);
+  CodeBuffer::instance().emit("addu $sp,$sp,"+intToString(nubmerOfArguments*4));
+  restoreUsedRegisters(registers);
+}
+
+String::String(char* yytext) {
+  type = "STRING";
+  value = string(yytext);
+  label = "msg"+intToString(++msgCount);
+  CodeBuffer::instance().emitData(label+": "+".asciiz "+string(yytext));
+  reg = registerPool.top();
+  registerPool.pop();
+  CodeBuffer::instance().emit("la " +reg.name()+","+label);
+}
+
+Exp::Exp(String* expression) {
+  /*
+  if (allowStrings != true) {
+    errorMismatch(yylineno);
+    exit(0);
+  }*/
+  this->children.push_back(expression);
+  this->type = expression->type;
+  this->type = "STRING";
+  this->reg=expression->reg;
+}
+
+Exp::Exp(Num* expression) {
+  this->children.push_back(expression);
+  this->type = "INT";
+  this->reg=expression->reg;
+}
+
+Exp::Exp(Exp* expression) {
+  this->children.push_back(expression);
+  this->type = expression->type;
+  this->reg=expression->reg;
+}
+Exp::Exp(Exp* expression1, Binop* binop, Exp* expression2) {
+  this->children.push_back(expression1);
+  this->children.push_back(binop);
+  this->children.push_back(expression2);
+  if ((expression1->type != "INT" && expression1->type != "BYTE") ||
+      (expression2->type != "INT" && expression2->type != "BYTE")) {
+    errorMismatch(yylineno);
+    exit(0);
+  }
+  if ("INT" == expression1->type || "INT" == expression2->type) {
+    this->type = "INT";
+  } else {
+    this->type = "BYTE";
+  }
+  this->reg=expression1->reg;
+  if(binop->op=="+"){
+    CodeBuffer::instance().emit("addu "+this->reg.name()+","+expression1->reg.name()+","+expression2->reg.name());
+  }else if(binop->op=="-"){
+     CodeBuffer::instance().emit("subu "+this->reg.name()+","+expression1->reg.name()+","+expression2->reg.name());
+  }else if(binop->op=="*"){
+     CodeBuffer::instance().emit("mul "+this->reg.name()+","+expression1->reg.name()+","+expression2->reg.name());
+  }else if(binop->op=="/"){
+    CodeBuffer::instance().emit("beq "+expression2->reg.name()+",0,divException");
+    CodeBuffer::instance().emit("div "+this->reg.name()+","+expression1->reg.name()+","+expression2->reg.name());
+  }
+  if(this->type == "BYTE"){
+    CodeBuffer::instance().emit("li "+expression2->reg.name()+",0x000000ff");
+    CodeBuffer::instance().emit("and "+this->reg.name()+","+expression2->reg.name()+","+this->reg.name());
+  }
+  registerPool.push(expression2->reg);
+}
+
+Exp::Exp(Id* id) {
+  this->children.push_back(id);
+  if (!isDeclared(scopes, id)) {
+    errorUndef(yylineno, id->text);
+    exit(0);
+  }
+  this->type = getTypeById(scopes, id);
+  this->reg=registerPool.top();
+  registerPool.pop();
+  Symbol idSymbol = getSymbolById(scopes,id->text);
+  int offset = idSymbol.offset;
+  CodeBuffer::instance().emit("lw "+reg.name()+","+intToString((-offset)*4)+"($fp)");//read from the stack.
+  if(idSymbol.type == "BOOL"){
+    vector<int> list = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("beq "+reg.name()+","+intToString(1)+","));
+    string falseLabel = CodeBuffer::instance().next();
+    this->bplists.falseList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+    string trueLabel = CodeBuffer::instance().next();
+    this->bplists.trueList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+    CodeBuffer::instance().bpatch(list,trueLabel);
+  }
+}
+
+Exp::Exp(Call* call) {
+  this->children.push_back(call);
+  Symbol s = getSymbolById(scopes, call->id);
+  this->type = getSymbolById(scopes, call->id).ret;
+  this->reg=registerPool.top();
+  registerPool.pop();
+  CodeBuffer::instance().emit("move "+reg.name()+",$v0");//read from the stack.
+  if(s.ret == "BOOL"){
+    vector<int> list = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("beq "+reg.name()+","+intToString(1)+","));
+    string falseLabel = CodeBuffer::instance().next();
+    this->bplists.falseList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+    string trueLabel = CodeBuffer::instance().next();
+    this->bplists.trueList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+    CodeBuffer::instance().bpatch(list,trueLabel);
+  }
+}
+
+Exp::Exp(Num* num, b* byte) {
+  this->children.push_back(num);
+  this->children.push_back(byte);
+  this->type = "BYTE";
+  if((num->value)>255){
+    stringstream ss;
+    ss << num->value;
+    errorByteTooLarge(yylineno,string(ss.str()));
+    exit(0);
+  }
+  this->reg=num->reg;
+}
+Exp::Exp(False* f) {
+  this->children.push_back(f);
+  this->type = "BOOL";
+  //we need to edit the falseList of this expression:
+  this->bplists.falseList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+}
+Exp::Exp(True* t) {
+  this->children.push_back(t);
+  this->type = "BOOL";
+  //we need to edit the truelist of this expression:
+  this->bplists.trueList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+}
+Exp::Exp(Not* notOp, Exp* expression2) {
+  this->children.push_back(notOp);
+  this->children.push_back(expression2);
+  if ((expression2->type != "BOOL")) {
+    errorMismatch(yylineno);
+    exit(0);
+  }
+  this->type = "BOOL";
+  this->bplists.trueList=expression2->bplists.falseList;
+  this->bplists.falseList=expression2->bplists.trueList;
+}
+
+Exp::Exp(Exp* expression1, And* andOp, Exp* expression2) {
+  this->children.push_back(expression1);
+  this->children.push_back(andOp);
+  this->children.push_back(expression2);
+  if ((expression1->type != "BOOL") || (expression2->type != "BOOL")) {
+    errorMismatch(yylineno);
+    exit(0);
+  }
+  this->type = "BOOL";
+  CodeBuffer::instance().bpatch(expression1->bplists.trueList,expression2->bplists.quad);
+  this->bplists.trueList=expression2->bplists.trueList;
+  this->bplists.falseList=CodeBuffer::instance().merge(expression1->bplists.falseList,expression2->bplists.falseList);
+}
+
+Exp::Exp(Exp* expression1, Or* orOp, Exp* expression2) {
+  this->children.push_back(expression1);
+  this->children.push_back(orOp);
+  this->children.push_back(expression2);
+  if ((expression1->type != "BOOL") || (expression2->type != "BOOL")) {
+    errorMismatch(yylineno);
+    exit(0);
+  }
+  this->type = "BOOL";
+  CodeBuffer::instance().bpatch(expression1->bplists.falseList,expression2->bplists.quad);
+  this->bplists.falseList=expression2->bplists.falseList;
+  this->bplists.trueList=CodeBuffer::instance().merge(expression1->bplists.trueList,expression2->bplists.trueList);
+}
+Exp::Exp(Exp* expression1, Relop* relop, Exp* expression2) {
+  this->children.push_back(expression1);
+  this->children.push_back(relop);
+  this->children.push_back(expression2);
+  if ((expression1->type != "INT" && expression1->type != "BYTE") ||
+      (expression2->type != "INT" && expression2->type != "BYTE")) {
+    errorMismatch(yylineno);
+    exit(0);
+  }
+  string op;
+  if(relop->op == "=="){
+    op = "beq";
+  }else if(relop->op == "!="){
+    op = "bne";
+  }else if(relop->op == ">"){
+    op = "bgt";
+  }else if(relop->op == "<"){
+    op = "blt";
+  }else if(relop->op == "<="){
+    op = "ble";
+  }else if(relop->op == ">="){
+    op = "bge";
+  }
+  this->type = "BOOL";
+  this->bplists.trueList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit(
+    op+" "+expression1->reg.name()+","+expression2->reg.name()+","));
+  this->bplists.falseList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+}
