@@ -3,6 +3,7 @@
 //User Declarations
 
 #include "output.hpp"
+#include "bp.hpp"
 #include "parser.hpp"
 #include <stdio.h>
 
@@ -15,6 +16,7 @@ extern int yylineno;    //line number from lex for Errors
 
 std::stack<SymbolTable> TableStack;
 std::stack<int> OffsetStack;
+std::stack<Register> registerPool;//-------------------------------------------------------
 
 RetType* expectedRet;        ////current fun expected return type for checking
 Id* currentFunName;            //current fun name
@@ -55,7 +57,10 @@ using namespace output;
 %left RBRACK;       
 %right ASSIGN;
 %nonassoc RELOP;
-%left BINOP;
+%left PLUS;
+%left MINUS;
+%left MUL;
+%left DIV;
 %token ID;
 %token NUM;
 %token STRING;
@@ -111,6 +116,7 @@ AddFuncScope: {
 }
 
 OpenFunScope: {
+    addNewFramePointer();
     addNewScope(TableStack, OffsetStack);    //opens a new scope for function
     addFuncSymScope(TableStack, OffsetStack, currentFunParams, yylineno); 
 };
@@ -220,8 +226,9 @@ Statement: RETURN Exp SC {
 };
 
 //if statement
-Statement: IF LPAREN checkExpType AddNewScope Statement ExitScope {
-    $$ = new Statement( (Exp*)$2, (Statement*)$4);}
+Statement: IF LPAREN checkExpType MARKER_M_IF AddNewScope Statement ExitScope {
+    ((Statement*)$6)->bp.quad = ((Statement*)$4)->bp.quad;
+    $$ = new Statement( (Exp*)$3, (Statement*)$6);}
 ;
 
 //exits the current scope
@@ -229,18 +236,45 @@ ExitScope: {
     finishScope(TableStack,OffsetStack);}
 ;
 
+MARKER_M_IF : {
+    $$ = new Statement(); //empty statement for quad
+    ((Statement*)$$)->bp.quad = CodeBuffer::instance().genLabel();
+}
+
+MARKER_N_IF : {
+    $$ = new Statement(); //empty statement for quad
+    ((Statement*)$$)->bp.quad = CodeBuffer::instance().genLabel();
+    ((Statement*)$$)->bp.nextList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+}
+
+
 //if statement with an else
-Statement: IF LPAREN checkExpType AddNewScope Statement ExitScope ELSE AddNewScope Statement {
-    $$ = new Statement( (Exp*)$2, (Statement*)$4, (Statement*)$8);
-    finishScope(TableStack,OffsetStack);}
-;
+Statement: IF LPAREN checkExpType MARKER_M_IF AddNewScope Statement ExitScope ELSE MARKER_N_IF MARKER_M_IF AddNewScope Statement {
+    ((Statement*)$6)->bp.quad = ((Statement*)$4)->bp.quad;
+    ((Statement*)$12)->bp.quad = ((Statement*)$10)->bp.quad;
+    $$ = new Statement( (Exp*)$3, (Statement*)$6, (Statement*)$12);
+    finishScope(TableStack,OffsetStack);
+    delete $9; //delete N MARKER
+};
 
 //while loop
-Statement: WHILE AddWhileScope LPAREN checkExpType AddNewScope Statement {
-    $$ = new Statement( (Exp*)$3, (Statement*)$5);
+Statement: WHILE AddWhileScope LPAREN MARKER_M_WHILE checkExpType AddNewScope MARKER_N_WHILE Statement {
+    ((Exp*)$5)->bp.quad=((Exp*)$4)->bp.quad;
+    ((Statement*)$8)->bp.quad=((Statement*)$7)->bp.quad;
+    $$ = new Statement( (Exp*)$5, (Statement*)$8);
     finishScope(TableStack,OffsetStack);
     whileScopes--; }
 ;
+
+MARKER_M_WHILE : {
+    $$ = new Exp(); //empty statement for quad
+    ((Exp*)$$)->bp.quad = CodeBuffer::instance().genLabel();
+}
+
+MARKER_N_WHILE : {
+    $$ = new Statement(); //empty statement for quad
+    ((Statement*)$$)->bp.quad = CodeBuffer::instance().genLabel();
+}
 
 //check if the expression is BOOL  in IF/While
 checkExpType: Exp RPAREN {
@@ -273,6 +307,7 @@ Statement: BREAK SC {
     }else{
         $$ = new Statement();
     }
+    ((Statement*)$$)->bp.breakList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")); //leave for backPatch
 };
 
 //checks function id for a special case of print function
@@ -303,7 +338,6 @@ Type: INT  { $$ = new Type("INT"); }
     | BOOL { $$ = new Type("BOOL"); }
 ;
 
-
 Exp: LPAREN Exp RPAREN { $$ = new Exp( (Exp*)$2); }
     | ID checkArrayIndexType { $$ = new Exp( (Id*)$1, (Exp*)$2); }        //array var 
     | ID { $$ = new Exp( (Id*)$1); }
@@ -314,11 +348,29 @@ Exp: LPAREN Exp RPAREN { $$ = new Exp( (Exp*)$2); }
     | TRUE { $$ = new Exp("TRUE"); }
     | FALSE { $$ = new Exp("FALSE"); }
     | NOT Exp { $$ = new Exp("NOT", (Exp*)$2); }
-    | Exp AND Exp { $$ = new Exp( (Exp*)$1 ,(Exp*)$3,"AND",yytext); }
-    | Exp OR Exp { $$ = new Exp( (Exp*)$1 ,(Exp*)$3,"OR",yytext); }
-    | Exp BINOP Exp { $$ = new Exp( (Exp*)$1 ,(Exp*)$3,"BINOP",yytext); }
+    | Exp PLUS Exp { $$ = new Exp( (Exp*)$1 ,(Exp*)$3,"+"); }   //------------------------------------
+    | Exp MINUS Exp { $$ = new Exp( (Exp*)$1 ,(Exp*)$3,"-"); }
+    | Exp MUL Exp { $$ = new Exp( (Exp*)$1 ,(Exp*)$3,"*"); }        //operators are send as the 3th var to Exp cons **
+    | Exp DIV Exp { $$ = new Exp( (Exp*)$1 ,(Exp*)$3,"/"); }    //-------------------------------------
     | Exp RELOP Exp { $$ = new Exp((Exp*)$1 ,(Exp*)$3,"RELOP",yytext); }
 ;
+
+Exp: Exp AND MARKER_M_EXP Exp { //added marker here **
+    ((Exp*)$4)->bp.quad = ((Exp*)$3)->bp.quad;
+    $$ = new Exp( (Exp*)$1 ,(Exp*)$4,"AND"); 
+    delete $3;
+};  
+
+Exp: Exp OR MARKER_M_EXP Exp { //added marker here **
+    ((Exp*)$4)->bp.quad = ((Exp*)$3)->bp.quad;
+    $$ = new Exp( (Exp*)$1 ,(Exp*)$4,"OR"); 
+    delete $3;
+};    
+
+MARKER_M_EXP: {
+    $$ = new Exp(); //new exp for quad
+    ((Exp*)$$)->bp.quad = CodeBuffer.instance().genLabel();
+}
 
 %%
 
@@ -334,5 +386,6 @@ int main(){
     derivesNum=0;
     isAprintFunc=false;
     StacksInit(TableStack, OffsetStack);
+    RegistersInit(registerPool);    //------new func added for init the registers
     return yyparse();
 }

@@ -2,6 +2,67 @@
 #include <cstring>
 using namespace output;
 
+#define LOW_REG 8
+#define HIGH_REG 26
+
+//saves the framePointer
+void addNewFramePointer(){
+	CodeBuffer::instance().emit("move $fp,$sp");
+	CodeBuffer::instance().emit("subu $fp,$fp,4");
+}
+
+//init all the registers that we can use into the pool
+void registersInit(stack<Register>& registersPool){
+	for(int i=LOW_REG;i<HIGH_REG;i++){
+		registersPool.push(Register(string("$"+to_string(i)), i));
+	}
+}
+
+void saveUsedRegs(stack<Register> unUsedRegs){
+	bool used[HIGH_REG] ;
+	for(int i=0;i<HIGH_REG;i++){
+		used[i] = true;
+	}
+	while(!unUsedRegs.empty()){		//while not empty do :
+		Register reg = unUsedRegs.top();
+		used[reg.regNum] = false; //mark as unused
+		unUsedRegs.pop();
+	}
+	for(int i=LOW_REG;i<HIGH_REG;i++){
+		if(used[i]){	//check if its a used reg
+			CodeBuffer::instance().emit("subu $sp,$sp,4");
+			CodeBuffer::instance().emit("sw $" + to_string(i) + ",0($sp)");
+		}
+	}
+	CodeBuffer::instance().emit("subu $sp,$sp,4");
+	CodeBuffer::instance().emit("sw $fp,0($sp)");
+	CodeBuffer::instance().emit("subu $sp,$sp,4");
+	CodeBuffer::instance().emit("sw $ra,0($sp)"); //save the return address
+}
+
+//the opposite of saveUsedRegs
+void restoreUsedRegs(stack<Register> unUsedRegs){
+	CodeBuffer::instance().emit("lw $ra,0($sp)"); //restore the return address
+	CodeBuffer::instance().emit("addu $sp,$sp,4");
+	CodeBuffer::instance().emit("lw $fp,0($sp)");
+	CodeBuffer::instance().emit("addu $sp,$sp,4");
+	bool used[HIGH_REG] ;
+	for(int i=0;i<HIGH_REG;i++){
+		used[i] = true;
+	}
+	while(!unUsedRegs.empty()){		//while not empty do :
+		Register reg = unUsedRegs.top();
+		used[reg.regNum] = false; //mark as unused
+		unUsedRegs.pop();
+	}
+	for(int i=HIGH_REG-1;i>=LOW_REG;i++){
+		if(used[i]){
+			CodeBuffer::instance().emit("lw $" + to_string(i) + ",0($sp)");
+			CodeBuffer::instance().emit("addu $sp,$sp,4");
+		}
+	}
+}
+
 void StacksInit(stack<SymbolTable>& StackTable, stack<int>& OffsetStack) {
 	SymbolTable global;
 	StackTable.push(global);
@@ -20,9 +81,18 @@ void StacksInit(stack<SymbolTable>& StackTable, stack<int>& OffsetStack) {
 	Symbol sym1("print", s1, OffsetStack.top(), PrintTypes, ret1);		//maybe need to send a & ?
 	Symbol sym2("printi", s2, OffsetStack.top(), PrintITypes, ret1);
 	
+	CodeBuffer::instance().emit("print:");
+  	CodeBuffer::instance().emit("lw $a0,0($sp)\nli $v0,4\nsyscall\njr $ra");
 	StackTable.top().push_back(sym1);
+	CodeBuffer::instance().emit("printi:");
+    CodeBuffer::instance().emit("lw $a0,0($sp)\nli $v0,1\nsyscall\njr $ra");
 	StackTable.top().push_back(sym2);
-	
+	//Div by Zero new label for error!
+	string errLabel = "divByZero";
+	CodeBuffer::instance().emitData(errLabel + ": "+".asciiz \"Error division by zero\\n\"");
+	CodeBuffer::instance().emit("divException:");
+	CodeBuffer::instance().emit("la $a0,divByZero\nli $v0,4\nsyscall\n");
+	CodeBuffer::instance().emit("li $v0,10\nsyscall\n"); //terminate the prog
 }
 
 
@@ -131,6 +201,7 @@ void addFuncToScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack,
 	string funcType=makeFunctionType(ret->type,types);
 	Symbol sym(id->name, funcType, OffsetStack.top(),types, ret->type);
 	StackTable.top().push_back(sym);
+	CodeBuffer::instance().emit(id->name+":"); //add new func label
 }
 
 Symbol getSymbolById(stack<SymbolTable>& StackTable, string id) {
@@ -192,6 +263,10 @@ bool checkMatchingTypes(vector<string>& types1,vector<string>& types2){
 }
 
 void checkMain(){
+	CodeBuffer::instance().printDataBuffer();  //prints data Buffer
+	cout<<".globl main"<<endl;
+	CodeBuffer::instance().printCodeBuffer(); //prints code Buffer
+
 	Symbol mainSym = getSymbolById(TableStack,"main");
 	if(mainSym.ret !="VOID" ||mainSym.name!="main" || !(mainSym.args.empty())){
 		errorMainMissing();
@@ -206,9 +281,14 @@ Funcs::Funcs(Funcs* list, Func* func) : funcsList( vector<Func*>(list->funcsList
 	this->funcsList.push_back(func);
 }
 
-
-Func::Func(RetType* ret, Id* id, Formals* formals, Statements* statements) :
-id(id->name), funcRet(ret->type), formals(formals) {}
+Func::Func(RetType* ret, Id* id, Formals* formals, Statements* statements,stack<int>& OffsetStack) :
+id(id->name), funcRet(ret->type), formals(formals) {
+	int offset = OffsetStack.top();
+	if(offset > 0){
+		CodeBuffer::instance().emit("addu $sp,$sp," + to_string(offset*4)); //saving space for vars in stack
+	}
+	CodeBuffer::instance().emit("jr $ra"); //jump into return address
+}
 
 
 RetType::RetType(Void* vNode) : type("VOID"){}
@@ -252,11 +332,25 @@ FormalDecl::FormalDecl(Type* t, Id* id,Num* num, b* byte ){
 	this->id = id->name;
 }
 
-Statements::Statements(Statement* statement) {}
+Statements::Statements(Statement* statement) {
+	this->bp.quad = CodeBuffer::instance().genLabel(); 
+	CodeBuffer::instance().bpatch(statement->bp.nextList,this->bp.quad);
+	this->bp.breakList = statement->bp.breakList;
+}
 
-Statements::Statements(Statements* statements, Statement* statement) {}
+Statements::Statements(Statements* statements, Statement* statement) {
+	this->bp.quad = CodeBuffer::instance().genLabel();
+	CodeBuffer::instance().bpatch(statement->bp.nextList,this->bp.quad);
+	this->bp.breakList = CodeBuffer::instance().merge(statements->bp.breakList,statement->bp.breakList);
 
-Statement::Statement(Statements* statements) {}
+}
+
+Statement::Statement(Statements* statements) {
+	this->bp.nextList=statements->bp.nextList;
+	this->bp.trueList=statements->bp.trueList;
+	this->bp.falseList=statements->bp.falseList;
+	this->bp.breakList = statements->bp.breakList;
+}
 
 Statement::Statement(Exp* exp) {}
 
@@ -393,7 +487,9 @@ ExpList::ExpList(Exp* exp, ExpList* expList){
 
 
 Call::Call(Id* id) {
-	
+	stack<Register> regs = registersPool;
+  	saveUsedRegs(regs);
+
 	if (!checkSymDec(TableStack, id)) {
 		errorUndefFunc(yylineno, id->name);
 		exit(0);
@@ -408,17 +504,24 @@ Call::Call(Id* id) {
 		exit(0);
 	}
 	this->id = id->name;
+	int funArgs = sym.args.size(); //num of args of the func called
+	CodeBuffer::instance().emit("jal "+id->name);
+  	CodeBuffer::instance().emit("addu $sp,$sp,"+to_string(funArgs*4)); //saves space for all the fun arguments
+  	restoreUsedRegs(regs);
 }
 
 
 Call::Call(Id* id, ExpList* expList) {
-	
+	stack<Register> regs = registersPool;
+  	saveUsedRegs(regs);
+	int funArgs;
 
 	if (!checkSymDec(TableStack, id)) {
 		errorUndefFunc(yylineno, id->name);
 		exit(0);
 	}else{
 		Symbol sym = getSymbolById(TableStack, id->name);
+		funArgs = sym.args.size(); //num of args of the func called
 		if (!(sym.isFunc)) {								//make outer func
 			errorUndefFunc(yylineno, id->name);
 			exit(0);
@@ -429,6 +532,22 @@ Call::Call(Id* id, ExpList* expList) {
 		}
 	}
 	this->id = id->name;
+	for(vector<Register>::reverse_iterator i=expList->registers.rbegin();i!=expList->registers.rend();i++){
+		CodeBuffer::instance().emit("subu $sp,$sp,4");
+		CodeBuffer::instance().emit("sw " + (*i).regName + ",0($sp)"); //push to the stack.
+		registersPool.push((*i));
+  	}
+	CodeBuffer::instance().emit("jal "+id->name);
+  	CodeBuffer::instance().emit("addu $sp,$sp,"+to_string(funArgs*4)); //saves space for all the fun arguments
+  	restoreUsedRegs(regs);
+}
+
+String::String(const char* yytext) {
+  label = "msg" + to_string(++msgCount);
+  CodeBuffer::instance().emitData(label+": "+".asciiz "+string(yytext));
+  reg = registersPool.top();
+  registersPool.pop();
+  CodeBuffer::instance().emit("la " +reg.regName+","+label);
 }
 
 ///---------------------------------------add reg val to exp funcs

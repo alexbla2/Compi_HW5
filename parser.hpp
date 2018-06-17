@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <iostream>
 #include "output.hpp"
+#include "bp.hpp"
 
 
 using namespace std;
@@ -18,12 +19,14 @@ typedef vector<Symbol> SymbolTable;
 extern stack<SymbolTable> TableStack; 
 class Register;
 extern stack<Register> registersPool;
+static int msgCount = 0; //??????????????????????
 
 extern int yylineno;		//extern var from lexer - keeps the current line number
 
 #define YYSTYPE Node*
 
 class Register {
+	public:
 	string regName;
 	int regNum;
 	Register() : regName("$0"), regNum(0) {}
@@ -252,7 +255,7 @@ class Func : public Node {
 	Formals* formals;
 	
 	Func(){}
-	Func(RetType* ret, Id* id, Formals* formals, Statements* statements);
+	Func(RetType* ret, Id* id, Formals* formals, Statements* statements,stack<int>& OffsetStack);
 };
 
 class Funcs : public Node {
