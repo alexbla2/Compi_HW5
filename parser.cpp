@@ -12,7 +12,7 @@ void saveFramePointer(){
 	CodeBuffer::instance().emit("subu $fp,$fp,4");
 }
 
-//init all the registers that we can use into the pool
+//init all the registers that we can use into the stack
 void registersInit(stack<Register>& registerStack){
 	for(int i=LOW_REG;i<HIGH_REG;i++){
 		registerStack.push(Register(string("$" + to_string(i)), i));
@@ -21,16 +21,16 @@ void registersInit(stack<Register>& registerStack){
 
 void saveUsedRegs(stack<Register> unUsedRegs){
 	bool used[HIGH_REG] ;
-	for(int i=LOW_REG;i<HIGH_REG;i++){
+	for(int i=LOW_REG;i<HIGH_REG;i++){	//marks all as used for start
 		used[i] = true;
 	}
-	while(!unUsedRegs.empty()){		//while not empty do :
+	while(!unUsedRegs.empty()){		//while there are unused regs do:
 		Register reg = unUsedRegs.top();
 		used[reg.regNum] = false; //mark as unused
 		unUsedRegs.pop();
 	}
 	for(int i=LOW_REG;i<HIGH_REG;i++){
-		if(used[i]){	//check if its a used reg
+		if(used[i]){	//for each used reg
 			CodeBuffer::instance().emit("subu $sp,$sp,4");
 			CodeBuffer::instance().emit("sw $" + to_string(i) + ",0($sp)");
 		}
@@ -38,27 +38,27 @@ void saveUsedRegs(stack<Register> unUsedRegs){
 	CodeBuffer::instance().emit("subu $sp,$sp,4");
 	CodeBuffer::instance().emit("sw $fp,0($sp)");	//save the FramePointer
 	CodeBuffer::instance().emit("subu $sp,$sp,4");
-	CodeBuffer::instance().emit("sw $ra,0($sp)"); //save the return address
+	CodeBuffer::instance().emit("sw $ra,0($sp)"); //save the return address in stack
 }
 
 //the opposite of saveUsedRegs
 void restoreUsedRegs(stack<Register> unUsedRegs){
 	CodeBuffer::instance().emit("lw $ra,0($sp)"); //restore the return address
 	CodeBuffer::instance().emit("addu $sp,$sp,4");
-	CodeBuffer::instance().emit("lw $fp,0($sp)");
+	CodeBuffer::instance().emit("lw $fp,0($sp)");	//restore the return FramePointer
 	CodeBuffer::instance().emit("addu $sp,$sp,4");
 	bool used[HIGH_REG] ;
 	for(int i=LOW_REG;i<HIGH_REG;i++){
 		used[i] = true;
 	}
-	while(!unUsedRegs.empty()){		//while not empty do :
+	while(!unUsedRegs.empty()){	
 		Register reg = unUsedRegs.top();
 		used[reg.regNum] = false; //mark as unused
 		unUsedRegs.pop();
 	}
-	for(int i=HIGH_REG-1;i>=LOW_REG;i++){ //loading from the opposite direction now
+	for(int i=HIGH_REG-1; i>=LOW_REG; i++){ //loading from the opposite direction now
 		if(used[i]){
-			CodeBuffer::instance().emit("lw $" + to_string(i) + ",0($sp)");
+			CodeBuffer::instance().emit("lw $" + to_string(i) + ",0($sp)"); //restore reg from stack
 			CodeBuffer::instance().emit("addu $sp,$sp,4");
 		}
 	}
@@ -209,7 +209,7 @@ void addFuncToScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack,
 	string funcType=makeFunctionType(ret->type,types);
 	Symbol sym(id->name, funcType, OffsetStack.top(),types, ret->type);
 	StackTable.top().push_back(sym);
-	CodeBuffer::instance().emit(id->name+":"); //add a new func label
+	CodeBuffer::instance().emit(id->name + ":"); //add a new func label
 }
 
 Symbol getSymbolById(stack<SymbolTable>& StackTable, string id) {

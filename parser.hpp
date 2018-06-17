@@ -14,12 +14,13 @@
 
 
 using namespace std;
+static int stringNum = 0;
 class Symbol;
 typedef vector<Symbol> SymbolTable;
 extern stack<SymbolTable> TableStack; 
 class Register;
-extern stack<Register> registerStack;
-static int stringNum = 0; //??????????????????????
+extern stack<Register> registerStack; //a stack for saving all the *Unused* Available registers
+
 
 extern int yylineno;		//extern var from lexer - keeps the current line number
 
@@ -29,20 +30,21 @@ class Register {
 	public:
 	string regName;
 	int regNum;
+
 	Register() : regName("$0"), regNum(0) {}
-	Register(string name,int num) : regName(name) , regNum(num) {}
+	Register(string name, int num) : regName(name) , regNum(num) {}
 
 };
 
 class BackPatchLists{
-  public:
-  string quad;
-  std::vector<int> trueList;
-  std::vector<int> falseList;
-  std::vector<int> nextList;  
-  std::vector<int> breakList;
-  BackPatchLists(){
-  }
+	public:
+	string quad;
+	vector<int> trueList;
+	vector<int> falseList;
+	vector<int> nextList;  
+	vector<int> breakList;
+
+	BackPatchLists(){}
 };
 //----------------------------------------------------------------------------------------------
 
@@ -115,8 +117,8 @@ class String : public Node {
     public:
     string type;								
     string value;
-	Register reg;			//-----------------TODO
-	string label;
+	Register reg;			//temp reg to hold the string
+	string label;			//the label that will hold the string
 	
     String(const char* yytext) : type("STRING"), value(yytext) {}
 };
@@ -125,7 +127,7 @@ class Num : public Node {
     public:
     string type;								
     int value;
-	Register reg;
+	Register reg;	//temp reg to hold the num
 	
     Num(char* yytext) : type("INT"), value(atoi(yytext)) {}
 };
@@ -134,7 +136,7 @@ class Exp;
 class ExpList : public Node {
 	public:
 	vector<string> types;	//vector of type classes
-	vector<Register> registers;						
+	vector<Register> registers;		//vector of registers that hold every exp in the expList				
 
 	ExpList() : types( vector<string>() ), registers(vector<Register>()) {}
 	ExpList(Exp* exp);
@@ -144,7 +146,7 @@ class ExpList : public Node {
 class Id : public Node {
     public:
     string name;
-	Register reg;			//TODO
+	Register reg;			//temp reg to hold the id
 	
     Id(char* yytext) : name(string(yytext)) {}
 	Id(string yytext) : name(yytext) {}
@@ -166,8 +168,8 @@ class b : public Node {};
 class Exp : public Node {
 	public:
 	string type;
-	Register reg;
-	BackPatchLists bp;										
+	Register reg;		//temp reg to hold the Exp
+	BackPatchLists bp;					
 
 	Exp();
 	Exp(String* s,bool isAPrintFunc);
