@@ -18,8 +18,8 @@ class Symbol;
 typedef vector<Symbol> SymbolTable;
 extern stack<SymbolTable> TableStack; 
 class Register;
-extern stack<Register> registersPool;
-static int msgCount = 0; //??????????????????????
+extern stack<Register> registerStack;
+static int stringNum = 0; //??????????????????????
 
 extern int yylineno;		//extern var from lexer - keeps the current line number
 
@@ -271,8 +271,10 @@ class Funcs : public Node {
 //Auxiliry functions
 
 void checkMain();
+void saveFramePointer();
 void checkByteToLarge(int numVal);
 void StacksInit(stack<SymbolTable>& StackTable, stack<int>& OffsetStack) ;
+void registersInit(stack<Register>& registerStack);
 void addNewScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack) ;
 void scopePrint(SymbolTable& scope);
 void finishScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack);

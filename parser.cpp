@@ -2,25 +2,26 @@
 #include <cstring>
 using namespace output;
 
+//usable registers nums (R_low,...,R_high)
 #define LOW_REG 8
 #define HIGH_REG 26
 
 //saves the framePointer
-void addNewFramePointer(){
+void saveFramePointer(){
 	CodeBuffer::instance().emit("move $fp,$sp");
 	CodeBuffer::instance().emit("subu $fp,$fp,4");
 }
 
 //init all the registers that we can use into the pool
-void registersInit(stack<Register>& registersPool){
+void registersInit(stack<Register>& registerStack){
 	for(int i=LOW_REG;i<HIGH_REG;i++){
-		registersPool.push(Register(string("$"+to_string(i)), i));
+		registerStack.push(Register(string("$" + to_string(i)), i));
 	}
 }
 
 void saveUsedRegs(stack<Register> unUsedRegs){
 	bool used[HIGH_REG] ;
-	for(int i=0;i<HIGH_REG;i++){
+	for(int i=LOW_REG;i<HIGH_REG;i++){
 		used[i] = true;
 	}
 	while(!unUsedRegs.empty()){		//while not empty do :
@@ -35,7 +36,7 @@ void saveUsedRegs(stack<Register> unUsedRegs){
 		}
 	}
 	CodeBuffer::instance().emit("subu $sp,$sp,4");
-	CodeBuffer::instance().emit("sw $fp,0($sp)");
+	CodeBuffer::instance().emit("sw $fp,0($sp)");	//save the FramePointer
 	CodeBuffer::instance().emit("subu $sp,$sp,4");
 	CodeBuffer::instance().emit("sw $ra,0($sp)"); //save the return address
 }
@@ -47,7 +48,7 @@ void restoreUsedRegs(stack<Register> unUsedRegs){
 	CodeBuffer::instance().emit("lw $fp,0($sp)");
 	CodeBuffer::instance().emit("addu $sp,$sp,4");
 	bool used[HIGH_REG] ;
-	for(int i=0;i<HIGH_REG;i++){
+	for(int i=LOW_REG;i<HIGH_REG;i++){
 		used[i] = true;
 	}
 	while(!unUsedRegs.empty()){		//while not empty do :
@@ -55,7 +56,7 @@ void restoreUsedRegs(stack<Register> unUsedRegs){
 		used[reg.regNum] = false; //mark as unused
 		unUsedRegs.pop();
 	}
-	for(int i=HIGH_REG-1;i>=LOW_REG;i++){
+	for(int i=HIGH_REG-1;i>=LOW_REG;i++){ //loading from the opposite direction now
 		if(used[i]){
 			CodeBuffer::instance().emit("lw $" + to_string(i) + ",0($sp)");
 			CodeBuffer::instance().emit("addu $sp,$sp,4");
@@ -87,12 +88,19 @@ void StacksInit(stack<SymbolTable>& StackTable, stack<int>& OffsetStack) {
 	CodeBuffer::instance().emit("printi:");
     CodeBuffer::instance().emit("lw $a0,0($sp)\nli $v0,1\nsyscall\njr $ra");
 	StackTable.top().push_back(sym2);
+
 	//Div by Zero new label for error!
-	string errLabel = "divByZero";
-	CodeBuffer::instance().emitData(errLabel + ": "+".asciiz \"Error division by zero\\n\"");
+	string zeroExc = "divByZero";
+	CodeBuffer::instance().emitData(zeroExc + ": " + ".asciiz \"Error division by zero\\n\"");
 	CodeBuffer::instance().emit("divException:");
 	CodeBuffer::instance().emit("la $a0,divByZero\nli $v0,4\nsyscall\n");
 	CodeBuffer::instance().emit("li $v0,10\nsyscall\n"); //terminate the prog
+	string indexExc = "outOfBounds";
+	CodeBuffer::instance().emitData(indexExc + ": " + ".asciiz \"Error index out of bounds\\n\"");
+	CodeBuffer::instance().emit("indexException:");
+	CodeBuffer::instance().emit("la $a0,outOfBounds\nli $v0,4\nsyscall\n");
+	CodeBuffer::instance().emit("li $v0,10\nsyscall\n"); //terminate the prog
+
 }
 
 
@@ -201,7 +209,7 @@ void addFuncToScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack,
 	string funcType=makeFunctionType(ret->type,types);
 	Symbol sym(id->name, funcType, OffsetStack.top(),types, ret->type);
 	StackTable.top().push_back(sym);
-	CodeBuffer::instance().emit(id->name+":"); //add new func label
+	CodeBuffer::instance().emit(id->name+":"); //add a new func label
 }
 
 Symbol getSymbolById(stack<SymbolTable>& StackTable, string id) {
@@ -264,7 +272,7 @@ bool checkMatchingTypes(vector<string>& types1,vector<string>& types2){
 
 void checkMain(){
 	CodeBuffer::instance().printDataBuffer();  //prints data Buffer
-	cout<<".globl main"<<endl;
+	//cout<<".globl main"<<endl; ????????????????????????????????????????????
 	CodeBuffer::instance().printCodeBuffer(); //prints code Buffer
 
 	Symbol mainSym = getSymbolById(TableStack,"main");
@@ -285,7 +293,7 @@ Func::Func(RetType* ret, Id* id, Formals* formals, Statements* statements,stack<
 id(id->name), funcRet(ret->type), formals(formals) {
 	int offset = OffsetStack.top();
 	if(offset > 0){
-		CodeBuffer::instance().emit("addu $sp,$sp," + to_string(offset*4)); //saving space for vars in stack
+		CodeBuffer::instance().emit("addu $sp,$sp," + to_string(offset*4)); //saving space for func args in stack
 	}
 	CodeBuffer::instance().emit("jr $ra"); //jump into return address
 }
@@ -346,9 +354,9 @@ Statements::Statements(Statements* statements, Statement* statement) {
 }
 
 Statement::Statement(Statements* statements) {
-	this->bp.nextList=statements->bp.nextList;
-	this->bp.trueList=statements->bp.trueList;
-	this->bp.falseList=statements->bp.falseList;
+	this->bp.nextList = statements->bp.nextList;
+	this->bp.trueList = statements->bp.trueList;
+	this->bp.falseList = statements->bp.falseList;
 	this->bp.breakList = statements->bp.breakList;
 }
 
@@ -423,6 +431,7 @@ Statement::Statement(Id* id, Exp* exp) {
 	}
 }
 
+//assign exp2 into id[exp1]
 Statement::Statement(Id* id, Exp* exp1,Exp* exp2){
 	if (!checkSymDec(TableStack, id)) {
 		errorUndef(yylineno, id->name);
@@ -487,7 +496,7 @@ ExpList::ExpList(Exp* exp, ExpList* expList){
 
 
 Call::Call(Id* id) {
-	stack<Register> regs = registersPool;
+	stack<Register> regs = registerStack;
   	saveUsedRegs(regs);
 
 	if (!checkSymDec(TableStack, id)) {
@@ -505,14 +514,14 @@ Call::Call(Id* id) {
 	}
 	this->id = id->name;
 	int funArgs = sym.args.size(); //num of args of the func called
-	CodeBuffer::instance().emit("jal "+id->name);
-  	CodeBuffer::instance().emit("addu $sp,$sp,"+to_string(funArgs*4)); //saves space for all the fun arguments
+	CodeBuffer::instance().emit("jal " + id->name); //jump to func + stores ra
+  	CodeBuffer::instance().emit("addu $sp,$sp,"+to_string(funArgs*4)); //saves space for all the fun arguments???
   	restoreUsedRegs(regs);
 }
 
 
 Call::Call(Id* id, ExpList* expList) {
-	stack<Register> regs = registersPool;
+	stack<Register> regs = registerStack;
   	saveUsedRegs(regs);
 	int funArgs;
 
@@ -532,22 +541,22 @@ Call::Call(Id* id, ExpList* expList) {
 		}
 	}
 	this->id = id->name;
-	for(vector<Register>::reverse_iterator i=expList->registers.rbegin();i!=expList->registers.rend();i++){
+	for(vector<Register>::reverse_iterator i=expList->registers.rbegin(); i!=expList->registers.rend(); i++){
 		CodeBuffer::instance().emit("subu $sp,$sp,4");
-		CodeBuffer::instance().emit("sw " + (*i).regName + ",0($sp)"); //push to the stack.
-		registersPool.push((*i));
+		CodeBuffer::instance().emit("sw " + (*i).regName + ",0($sp)"); //push registers to the stack.
+		registerStack.push((*i)); //mark reg as unUsed!
   	}
-	CodeBuffer::instance().emit("jal "+id->name);
-  	CodeBuffer::instance().emit("addu $sp,$sp,"+to_string(funArgs*4)); //saves space for all the fun arguments
-  	restoreUsedRegs(regs);
+	CodeBuffer::instance().emit("jal " + id->name);
+  	CodeBuffer::instance().emit("addu $sp,$sp," + to_string(funArgs*4)); //saves space for all the fun arguments
+  	restoreUsedRegs(regs);	//update the regStack accord.
 }
 
 String::String(const char* yytext) {
-  label = "msg" + to_string(++msgCount);
-  CodeBuffer::instance().emitData(label+": "+".asciiz "+string(yytext));
-  reg = registersPool.top();
-  registersPool.pop();
-  CodeBuffer::instance().emit("la " +reg.regName+","+label);
+  label = "msg" + to_string(++stringNum); //updating the stringNum val to make a DIFFERENT label for diff msgs.
+  CodeBuffer::instance().emitData(label + ": " + ".asciiz " + string(yytext));
+  reg = registerStack.top();
+  registerStack.pop();
+  CodeBuffer::instance().emit("la " + reg.regName + "," + label);
 }
 
 ///---------------------------------------add reg val to exp funcs

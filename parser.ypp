@@ -16,7 +16,7 @@ extern int yylineno;    //line number from lex for Errors
 
 std::stack<SymbolTable> TableStack;
 std::stack<int> OffsetStack;
-std::stack<Register> registerPool;//-------------------------------------------------------
+std::stack<Register> registerStack;
 
 RetType* expectedRet;        ////current fun expected return type for checking
 Id* currentFunName;            //current fun name
@@ -72,8 +72,8 @@ using namespace output;
 
 Program: Funcs {
     checkMain();
-    finishScope(TableStack,OffsetStack);}
-;
+    finishScope(TableStack,OffsetStack);
+};
 
 Funcs:  /*epsilon*/ {
      $$ = new Funcs();
@@ -98,7 +98,7 @@ RetType: VOID {
     $$ = type;}
 ;
 
-//what about an array retType?
+
 RetType: Type {
     RetType* type = new RetType((Type*)$1);
     expectedRet =type;      //updates the expected return type accord.
@@ -116,7 +116,7 @@ AddFuncScope: {
 }
 
 OpenFunScope: {
-    addNewFramePointer();
+    saveFramePointer();
     addNewScope(TableStack, OffsetStack);    //opens a new scope for function
     addFuncSymScope(TableStack, OffsetStack, currentFunParams, yylineno); 
 };
@@ -200,7 +200,7 @@ Statement: Call SC {
     $$ = new Statement( (Call*)$1);}
 ;
 
-//simple return - only in void functions! check salso size for array type
+//simple return - only in void functions!
 Statement: RETURN SC {
     if(expectedRet->type == "VOID"){ //is a void func
         $$ = new Statement();
@@ -210,7 +210,7 @@ Statement: RETURN SC {
     }
 };
 
-//return with a type - accord to the func type -- check salso size for array type  -need to update!
+//return with a type - accord to the func type
 Statement: RETURN Exp SC {
     if(expectedRet->type == "VOID"){
         errorMismatch(yylineno);
@@ -350,10 +350,10 @@ Exp: LPAREN Exp RPAREN { $$ = new Exp( (Exp*)$2); }
     | NOT Exp { $$ = new Exp("NOT", (Exp*)$2); }
     | Exp PLUS Exp { $$ = new Exp( (Exp*)$1 ,(Exp*)$3,"+"); }   //------------------------------------
     | Exp MINUS Exp { $$ = new Exp( (Exp*)$1 ,(Exp*)$3,"-"); }
-    | Exp MUL Exp { $$ = new Exp( (Exp*)$1 ,(Exp*)$3,"*"); }        //operators are send as the 3th var to Exp cons **
+    | Exp MUL Exp { $$ = new Exp( (Exp*)$1 ,(Exp*)$3,"*"); }        //OPs are sent as the 3th var to Exp cons **
     | Exp DIV Exp { $$ = new Exp( (Exp*)$1 ,(Exp*)$3,"/"); }    //-------------------------------------
-    | Exp RELOP Exp { $$ = new Exp((Exp*)$1 ,(Exp*)$3,"RELOP",yytext); }
-;
+    | Exp RELOP Exp { $$ = new Exp((Exp*)$1 ,(Exp*)$3,"RELOP",yytext);  //relop sent as the last var   
+};
 
 Exp: Exp AND MARKER_M_EXP Exp { //added marker here **
     ((Exp*)$4)->bp.quad = ((Exp*)$3)->bp.quad;
@@ -369,7 +369,7 @@ Exp: Exp OR MARKER_M_EXP Exp { //added marker here **
 
 MARKER_M_EXP: {
     $$ = new Exp(); //new exp for quad
-    ((Exp*)$$)->bp.quad = CodeBuffer.instance().genLabel();
+    ((Exp*)$$)->bp.quad = CodeBuffer::instance().genLabel();
 }
 
 %%
@@ -386,6 +386,6 @@ int main(){
     derivesNum=0;
     isAprintFunc=false;
     StacksInit(TableStack, OffsetStack);
-    RegistersInit(registerPool);    //------new func added for init the registers
+    RegistersInit(registerStack);    //------new func added for registers init.
     return yyparse();
 }
