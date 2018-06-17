@@ -172,7 +172,7 @@ class Exp : public Node {
 	BackPatchLists bp;					
 
 	Exp();
-	Exp(String* s,bool isAPrintFunc);
+	Exp(String* s,bool isAPrintFunc,bool isAPrintiFunc);
 	Exp(Exp* exp);
 	Exp(Id* id,Exp* exp);											
 	Exp(Id* id);

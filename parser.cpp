@@ -578,14 +578,13 @@ Exp::Exp(Id* id,Exp* exp){
 }
 
 
-Exp::Exp(String* exp,bool isAprintFunc) {
+Exp::Exp(String* exp,bool isAprintFunc,bool isAprintiFunc) {
 	
-	if (!isAprintFunc) {
+	if (!isAprintFunc && !isAprintiFunc) {
 		errorMismatch(yylineno);
 		exit(0);
 	}
 	this->type = "STRING";
-	
 }
 
 

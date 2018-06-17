@@ -23,6 +23,7 @@ Id* currentFunName;            //current fun name
 Formals* currentFunParams;   //current fun params for type checking
 
 bool isAprintFunc;           //special case for the print function
+bool isAprintiFunc;           //special case for the printi function*
 int whileScopes;             //current number of while scopes 
 int derivesNum;
 
@@ -314,6 +315,8 @@ Statement: BREAK SC {
 FuncName: ID {
     if( ((Id*)$1)->name == "print"){   //checks if the func is *print* for special case (- can accept string after it
         isAprintFunc = true;                
+    }else if(((Id*)$1)->name == "printi"){  
+        isAprintiFunc = true;                
     }
     $$ = $1;
 };
@@ -321,17 +324,41 @@ FuncName: ID {
 //calls function with parameters
 Call: FuncName LPAREN ExpList RPAREN {
     $$ = new Call( (Id*)$1, (ExpList*)$3);
-    isAprintFunc = false; }       //back to default status        
-;
+    isAprintFunc = false; 
+    isAprintiFunc = false;  //back to default status
+};
 
 //calls function without parameters
 Call: FuncName LPAREN RPAREN {
     $$ = new Call( (Id*)$1);}
 ;
 
-ExpList: Exp { $$ = new ExpList( (Exp*)$1); }
-        | Exp COMMA ExpList { $$ = new ExpList( (Exp*)$1, (ExpList*)$3); }
-;
+ExpList: Exp {
+    if(isAprintiFunc && (((Exp*)$1)->type != "INT" &&  ((Exp*)$1)->type != "BYTE")){
+        std::vector<std::string> vec;
+        vec.push_back("INT");
+        errorPrototypeMismatch(yylineno, "printi", vec);
+		exit(0);
+    }
+    $$ = new ExpList( (Exp*)$1); 
+};
+
+ExpList: Exp COMMA ExpList {
+    if(isAprintiFunc || isAprintFunc){  //those funcs cannot except more than *one* param
+        std::vector<std::string> vec;
+        string funcName;
+        if(isAprintiFunc){
+            vec.push_back("INT");
+            funcName = "printi";
+        }else{
+            vec.push_back("STRING");
+            funcName = "print";
+        }
+        errorPrototypeMismatch(yylineno, funcName, vec);
+		exit(0);
+    }
+    $$ = new ExpList( (Exp*)$1, (ExpList*)$3); 
+};
 
 Type: INT  { $$ = new Type("INT"); }
     | BYTE { $$ = new Type("BYTE"); }
@@ -344,7 +371,7 @@ Exp: LPAREN Exp RPAREN { $$ = new Exp( (Exp*)$2); }
     | Call { $$ = new Exp( (Call*)$1); }
     | NUM { $$ = new Exp( (Num*)$1); }
     | NUM B { $$ = new Exp( (Num*)$1, (b*)$2); }
-    | STRING { $$ = new Exp( (String*)$1,isAprintFunc ); }
+    | STRING { $$ = new Exp( (String*)$1,isAprintFunc,isAprintiFunc ); }
     | TRUE { $$ = new Exp("TRUE"); }
     | FALSE { $$ = new Exp("FALSE"); }
     | NOT Exp { $$ = new Exp("NOT", (Exp*)$2); }
@@ -385,6 +412,7 @@ int main(){
     whileScopes=0;
     derivesNum=0;
     isAprintFunc=false;
+    isAprintiFunc = false;
     StacksInit(TableStack, OffsetStack);
     RegistersInit(registerStack);    //------new func added for registers init.
     return yyparse();
