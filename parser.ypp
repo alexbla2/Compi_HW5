@@ -112,8 +112,8 @@ UpdateCurrentFunName: ID {
     $$ = $1;
 }
 
-AddFuncScope: {
-    addFuncToScope(TableStack, OffsetStack, expectedRet, currentFunName, currentFunParams, yylineno);
+AddFuncScope: { //also creates fun name label
+    addFuncToScope(TableStack, OffsetStack, expectedRet, currentFunName, currentFunParams, yylineno); 
 }
 
 OpenFunScope: {
@@ -224,6 +224,7 @@ Statement: RETURN Exp SC {
             exit(0);
         }
     }
+    $$ = new Statement((Return*)$1,(Exp*)$2,OffsetStack);
 };
 
 //if statement

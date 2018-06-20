@@ -123,13 +123,19 @@ class String : public Node {
     String(const char* yytext) : type("STRING"), value(yytext) {}
 };
 
+class Return : public Node{};
+
 class Num : public Node {
     public:
     string type;								
     int value;
 	Register reg;	//temp reg to hold the num
 	
-    Num(char* yytext) : type("INT"), value(atoi(yytext)) {}
+    Num(char* yytext) : type("INT"), value(atoi(yytext)) {
+		reg = registerStack.top();
+		registerStack.pop();
+		CodeBuffer::instance().emit("li " + reg.regName + "," + string(yytext));	//saving num in a register
+	}
 };
 
 class Exp;
@@ -201,6 +207,9 @@ class Statement : public Node {
 	Statement(Id* id, Exp* exp1,Exp* exp2);		
 	Statement(Exp* exp, Statement* statement);
 	Statement(Exp* exp, Statement* statement1, Statement* statement2);	//for if + else func
+	//new cons:
+	Statement(Return* ret);
+  	Statement(Return* ret,Exp* expression,stack<int>& OffsetStack);
 };
 
 class Statements : public Node {

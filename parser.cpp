@@ -342,8 +342,8 @@ FormalDecl::FormalDecl(Type* t, Id* id,Num* num, b* byte ){
 
 Statements::Statements(Statement* statement) {
 	this->bp.quad = CodeBuffer::instance().genLabel(); 
-	CodeBuffer::instance().bpatch(statement->bp.nextList,this->bp.quad);
-	this->bp.breakList = statement->bp.breakList;
+	CodeBuffer::instance().bpatch(statement->bp.nextList,this->bp.quad); //pointing next to next line
+	this->bp.breakList = statement->bp.breakList;	//pointing break to next line
 }
 
 Statements::Statements(Statements* statements, Statement* statement) {
@@ -358,6 +358,33 @@ Statement::Statement(Statements* statements) {
 	this->bp.trueList = statements->bp.trueList;
 	this->bp.falseList = statements->bp.falseList;
 	this->bp.breakList = statements->bp.breakList;
+}
+
+Statement::Statement(Return* ret){
+	CodeBuffer::instance().emit("jr $ra");
+}
+
+Statement::Statement(Return* ret,Exp* expression,stack<int>& OffsetStack) { 
+  this->bp.quad = CodeBuffer::instance().genLabel();
+  int offset = OffsetStack.top();
+  if(offset>0){
+    CodeBuffer::instance().emit("addu $sp,$sp,"+ to_string((offset*4)));
+  }
+  if(expression->type == "BOOL"){
+    string trueLabel = CodeBuffer::instance().genLabel();
+    CodeBuffer::instance().emit("li $v0,1");
+    vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+    string falseLabel = CodeBuffer::instance().genLabel();
+    CodeBuffer::instance().emit("li $v0,0");
+    nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
+    string next = CodeBuffer::instance().genLabel();
+    CodeBuffer::instance().bpatch(nexts,next);
+    CodeBuffer::instance().bpatch(expression->bp.trueList,trueLabel);
+    CodeBuffer::instance().bpatch(expression->bp.falseList,falseLabel);
+  }else{
+    CodeBuffer::instance().emit("move $v0," + expression->reg.regName);
+  }
+  //CodeBuffer::instance().emit("jr $ra"); maybe we need in only in FUNC??---------------------
 }
 
 Statement::Statement(Exp* exp) {}
@@ -588,7 +615,7 @@ Exp::Exp(String* exp,bool isAprintFunc,bool isAprintiFunc) {
 }
 
 
-Exp::Exp(Num* exp) : type("INT"){}
+Exp::Exp(Num* exp) : type("INT"), reg(exp->reg){} //exp uses the same reg as num
 
 Exp::Exp(Exp* exp) : type(exp->type){}
 
