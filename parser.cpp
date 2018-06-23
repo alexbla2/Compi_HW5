@@ -283,6 +283,19 @@ void checkMain(){
 }
 
 
+/*int findActualOffset(){
+	
+	int currOffset = OffsetStack.top();
+	OffsetStack.pop();
+	int prevOffset = OffsetStack.top();
+	OffsetStack.pop();
+	OffsetStack.push(prevOffset);
+	OffsetStack.push(currOffset);
+	return currOffset - prevOffset ;
+	
+}*/
+
+
 Funcs::Funcs() : funcsList( vector<Func*>() ){}  // for epsilon rule
 
 Funcs::Funcs(Funcs* list, Func* func) : funcsList( vector<Func*>(list->funcsList) ){
@@ -542,7 +555,7 @@ Call::Call(Id* id) {
 	this->id = id->name;
 	int funArgs = sym.args.size(); //num of args of the func called
 	CodeBuffer::instance().emit("jal " + id->name); //jump to func + stores ra
-  	CodeBuffer::instance().emit("addu $sp,$sp,"+to_string(funArgs*4)); //saves space for all the fun arguments???
+  	CodeBuffer::instance().emit("addu $sp,$sp,"+to_string(funArgs*4)); //saves space for all the fun arguments??? clearing!?!
   	restoreUsedRegs(regs);
 }
 
@@ -574,7 +587,7 @@ Call::Call(Id* id, ExpList* expList) {
 		registerStack.push((*i)); //mark reg as unUsed!
   	}
 	CodeBuffer::instance().emit("jal " + id->name);
-  	CodeBuffer::instance().emit("addu $sp,$sp," + to_string(funArgs*4)); //saves space for all the fun arguments
+  	CodeBuffer::instance().emit("addu $sp,$sp," + to_string(funArgs*4)); //saves space for all the fun arguments, clearing parameters
   	restoreUsedRegs(regs);	//update the regStack accord.
 }
 
@@ -603,17 +616,36 @@ Exp::Exp(Id* id,Exp* exp){
 		errorMismatch(yylineno);													//TODO
 		exit(0);
 	}
-	this->type=t.substr(0,pos1);
+	this->type = t.substr(0,pos1);
+	this->reg = exp->reg;
+	
 	
 	int pos2=type.find("]");
 	string temp = t.substr(pos1+1,pos2-pos1-1);
+	int currOffset = OffsetStack.top();
+	OffsetStack.pop();
+	int prevOffset = OffsetStack.top();
+	OffsetStack.pop();
+	OffsetStack.push(prevOffset);
+	OffsetStack.push(currOffset);
+	int localOffset = currOffset - prevOffset ;// findActualOffset();
 	
-	CodeBuffer::instance().emit("bgt " + exp->reg.regName + ", " + temp +" ,indexException");
+	CodeBuffer::instance().emit("bge " + exp->reg.regName + ", " + temp +" ,indexException");
+	CodeBuffer::instance().emit("blt " + exp->reg.regName + ", $0 ,indexException");
+	CodeBuffer::instance().emit("addu " + this->reg.regName + "," + this->reg.regName + ","
+								+ intToString(localOffset));	//num of words from fp
+	CodeBuffer::instance().emit("mul " + this->reg.regName + "," + this->reg.regName + ","
+								+ "$" + intToString(4));	//num of bytes from fp						
+	CodeBuffer::instance().emit("addu " + this->reg.regName + "," + 
+								this->reg.regName + "," + "$fp"); //absolute address
+	CodeBuffer::instance().emit("lw " + this->reg.regName + "," + 
+								"(" + this->reg.regName + ")"); // loading id[exp]
+								
 	
 }
 
 
-Exp::Exp(String* exp,bool isAprintFunc,bool isAprintiFunc) {
+Exp::Exp(String* exp,bool isAprintFunc,bool isAprintiFunc) { //help please
 	
 	if (!isAprintFunc && !isAprintiFunc) {
 		errorMismatch(yylineno);
@@ -634,12 +666,30 @@ Exp::Exp(Id* id) {
 		exit(0);
 	}
 	this->type = getTypeById(TableStack, id).type;
+	this->reg = registerStack.top();
+	registerStack.pop();
+	
+	
+	int currOffset = OffsetStack.top();
+	OffsetStack.pop();
+	int prevOffset = OffsetStack.top();
+	OffsetStack.pop();
+	OffsetStack.push(prevOffset);
+	OffsetStack.push(currOffset);
+	int localOffset = currOffset - prevOffset ; // findActualOffset();
+	
+	CodeBuffer::instance().emit("lw " + this->reg.regName + "," + intToString((-localOffset)*4)+"($fp)");// loading id	
+
 }
 
 
 Exp::Exp(Call* call) { //TODO: X=CALL F() -> SHOULD EXP.REG GET RETURN VALUE?
 	
 	this->type = getSymbolById(TableStack, call->id).ret;
+	this->reg = registerStack.top();
+	registerStack.pop();
+	
+	CodeBuffer::instance().emit("move " + reg.regName + ",$v0");
 }
 
 
@@ -779,7 +829,7 @@ Exp::Exp(Exp* exp1, Exp* exp2, string opType,char* opVal) { // TODO: check for b
 			case "-": opCmd = "subu"; break;
 			case "*": opCmd = "mul"; break;
 			case "/": opCmd = "div";
-					CodeBuffer::instance().emit("beq " + exp2->reg.name() + ",0,divException");
+					CodeBuffer::instance().emit("beq " + exp2->reg.regName + ",0,divException");
 					break;
 		}
 		

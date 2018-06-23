@@ -87,6 +87,7 @@ Funcs:  /*epsilon*/ {
 Funcs: FuncDecl Funcs { $$ = new Funcs((Funcs*)$2, (Func*)$1);  } 
 
 FuncDecl: RetType UpdateCurrentFunName LPAREN Formals AddFuncScope RPAREN OpenFunScope LBRACE Statements RBRACE {
+	//TODO create new label for function
     derivesNum--;
     Func* func = new Func((RetType*)$1, (Id*)$2, (Formals*)$4, (Statements*)$9);
     $$ = func;
