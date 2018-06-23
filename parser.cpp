@@ -591,17 +591,25 @@ Exp::Exp(): type("") {}
 
 
 Exp::Exp(Id* id,Exp* exp){
+	
 	if (!checkSymDec(TableStack, id)) {
 		errorUndef(yylineno, id->name);
 		exit(0);
 	}
+	
 	string t=getTypeById(TableStack,id).type;
-	int pos=t.find("[");
+	int pos1=t.find("[");
 	if(pos == -1){				//not an array
 		errorMismatch(yylineno);													//TODO
 		exit(0);
 	}
-	this->type=t.substr(0,pos);
+	this->type=t.substr(0,pos1);
+	
+	int pos2=type.find("]");
+	string temp = t.substr(pos1+1,pos2-pos1-1);
+	
+	CodeBuffer::instance().emit("bgt " + exp->reg.regName + ", " + temp +" ,indexException");
+	
 }
 
 
@@ -617,7 +625,7 @@ Exp::Exp(String* exp,bool isAprintFunc,bool isAprintiFunc) {
 
 Exp::Exp(Num* exp) : type("INT"), reg(exp->reg){} //exp uses the same reg as num
 
-Exp::Exp(Exp* exp) : type(exp->type){}
+Exp::Exp(Exp* exp) : type(exp->type), reg(exp->reg){} /// TODO : WHY REG ISNT COPIED?
 
 Exp::Exp(Id* id) {
   
@@ -629,7 +637,7 @@ Exp::Exp(Id* id) {
 }
 
 
-Exp::Exp(Call* call) {
+Exp::Exp(Call* call) { //TODO: X=CALL F() -> SHOULD EXP.REG GET RETURN VALUE?
 	
 	this->type = getSymbolById(TableStack, call->id).ret;
 }
@@ -639,56 +647,150 @@ Exp::Exp(Num* num, b* byte) {
 	
 	this->type = "BYTE";
 	int numVal = num->value;
-	
+
 	if(numVal>255){
 		stringstream s;
 		s << numVal;
 		errorByteTooLarge(yylineno,string(s.str()));
 		exit(0);
 	}
+	
+/*	this->reg = registerStack.top();
+	registerStack.pop();
+	string val = string(s.str())
+	CodeBuffer::instance().emit("li" + this->reg.regName + "," + val);*/
 }
 
 Exp::Exp(string flag) {
+	
 	if(flag == "TRUE" || flag == "FALSE"){
 		this->type="BOOL";
+		this->reg = registerStack.top();
+		registerStack.pop();
+		string val;
+		
+		if( flag == "TRUE" )
+			val = "$1";
+		else
+			val = "$0";
+		
+		CodeBuffer::instance().emit("li" + this->reg.regName + "," + val);
+		
 	}
+	
 }
 
 Exp::Exp(string operand, Exp* exp) {		//not
+	
 	if(operand == "NOT"){
 		if ((exp->type != "BOOL")) {
 			errorMismatch(yylineno);
 			exit(0);
 		}
+		
 		this->type="BOOL";
+		this->reg = exp->reg;
+		/*this->reg = registerStack.top();
+		registerStack.pop();*/
+
+		Register tmp = registerStack.top();
+		CodeBuffer::instance().emit("li" + tmp.regName + ", $0");
+		CodeBuffer::instance().emit("seq" + this->reg.regName + "," + 
+					this->reg.regName + "," + tmp.regName );
 	}
+	
 }
 
 //-----------------------------------------------------------------to change a bit
-Exp::Exp(Exp* exp1, Exp* exp2, string opType,char* opVal) : type("BOOL"){
-	if(opType == "OR" || opType == "AND"){
+Exp::Exp(Exp* exp1, Exp* exp2, string opType,char* opVal) { // TODO: check for bool back patching
+	
+	if(opType == "LOGOP"){
+		
 		if ((exp1->type != "BOOL") || (exp2->type != "BOOL")) {
 			errorMismatch(yylineno);
 			exit(0);
 		}
-	}else if(opType == "RELOP"){//--------
+		
+		this->type = "BOOL";
+		
+		this->reg = exp1->reg;
+		string opCmd;
+		string optmp = string(opVal);
+		if(optmp = "AND")
+			opCmd =  "and";
+		if(optmp = "OR")
+			opCmd =  "or";
+		
+		CodeBuffer::instance().emit(opCmd + this->reg.regName + "," + 
+					exp1->reg.regName + "," + exp2->reg.regName);
+		
+		registerStack.push(exp2->reg);
+		
+	}
+	
+	else if(opType == "RELOP"){//--------
+		
 		if ((exp1->type != "INT" && exp1->type != "BYTE") ||
 	 		 (exp2->type != "INT" && exp2->type != "BYTE")) {
 			errorMismatch(yylineno);
 			exit(0);
 		}
-	}else if(opType == "BINOP"){//--------
+		
+		this->type = "BOOL";
+		this->reg = exp1->reg;
+		
+		string opCmd;
+		string optmp = string(opVal);
+		switch(optmp){
+			case "==": opCmd = "seq"; break;
+			case "!=": opCmd = "sne"; break;
+			case "<": opCmd = "slt"; break;
+			case ">": opCmd = "sgt"; break;
+			case "<=": opCmd = "sle"; break;
+			case ">=": opCmd = "sge"; break;
+		}
+
+		CodeBuffer::instance().emit( opCmd + " " + this->reg + "," +
+				exp1->reg.regName + "," + exp2->reg.regName ));
+		registerStack.push(exp2->reg);
+		
+	}
+	
+	else if(opType == "BINOP"){//--------
+		
 		if ((exp1->type != "INT" && exp1->type != "BYTE") ||
 	 		 (exp2->type != "INT" && exp2->type != "BYTE")) {
 			errorMismatch(yylineno);
 			exit(0);
 		}
+		
 		if (exp1->type  == "INT"  || exp2->type =="INT" ) {
 			this->type = "INT";
 		} 
 		else{
 			this->type = "BYTE";
 		}
+		
+		this->reg = exp1->reg;
+		string opCmd;
+		string optmp = string(opVal);
+		switch(optmp){
+			case "+": opCmd = "addu"; break;
+			case "-": opCmd = "subu"; break;
+			case "*": opCmd = "mul"; break;
+			case "/": opCmd = "div";
+					CodeBuffer::instance().emit("beq " + exp2->reg.name() + ",0,divException");
+					break;
+		}
+		
+		CodeBuffer::instance().emit(opCmd + this->reg.regName + "," + 
+					exp1->reg.regName + "," + exp2->reg.regName);
+		
+		if(this->type == "BYTE")
+			CodeBuffer::instance().emit("andi "+this->reg.regName+", 0x000000ff,"+this->reg.regName);
+		
+		registerStack.push(exp2->reg);
+		
 	}
 }
 
