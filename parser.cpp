@@ -282,20 +282,6 @@ void checkMain(){
 	}
 }
 
-
-/*int findActualOffset(){
-	
-	int currOffset = OffsetStack.top();
-	OffsetStack.pop();
-	int prevOffset = OffsetStack.top();
-	OffsetStack.pop();
-	OffsetStack.push(prevOffset);
-	OffsetStack.push(currOffset);
-	return currOffset - prevOffset ;
-	
-}*/
-
-
 Funcs::Funcs() : funcsList( vector<Func*>() ){}  // for epsilon rule
 
 Funcs::Funcs(Funcs* list, Func* func) : funcsList( vector<Func*>(list->funcsList) ){
@@ -603,7 +589,7 @@ String::String(const char* yytext) {
 Exp::Exp(): type("") {}
 
 
-Exp::Exp(Id* id,Exp* exp){
+Exp::Exp(Id* id,Exp* exp){		//a 5 represents a[5] (for example)
 	
 	if (!checkSymDec(TableStack, id)) {
 		errorUndef(yylineno, id->name);
@@ -611,8 +597,9 @@ Exp::Exp(Id* id,Exp* exp){
 	}
 	
 	string t=getTypeById(TableStack,id).type;
+	int currOffset = getSymbolById(TableStack, id->name).offset;
 	int pos1=t.find("[");
-	if(pos == -1){				//not an array
+	if(pos1 == -1){				//not an array
 		errorMismatch(yylineno);													//TODO
 		exit(0);
 	}
@@ -622,26 +609,20 @@ Exp::Exp(Id* id,Exp* exp){
 	
 	int pos2=type.find("]");
 	string temp = t.substr(pos1+1,pos2-pos1-1);
-	int currOffset = OffsetStack.top();
-	OffsetStack.pop();
-	int prevOffset = OffsetStack.top();
-	OffsetStack.pop();
-	OffsetStack.push(prevOffset);
-	OffsetStack.push(currOffset);
-	int localOffset = currOffset - prevOffset ;// findActualOffset();
+	SymbolTable currScope = TableStack.top();
+	int firstOffset = currScope[0].offset;
+	int localOffset = currOffset - firstOffset ;// findActualOffset();
 	
-	CodeBuffer::instance().emit("bge " + exp->reg.regName + ", " + temp +" ,indexException");
-	CodeBuffer::instance().emit("blt " + exp->reg.regName + ", $0 ,indexException");
+	CodeBuffer::instance().emit("bge " + exp->reg.regName + "," + temp +",indexException");
+	CodeBuffer::instance().emit("blt " + exp->reg.regName + ",0,indexException");
 	CodeBuffer::instance().emit("addu " + this->reg.regName + "," + this->reg.regName + ","
-								+ intToString(localOffset));	//num of words from fp
+								+ to_string(localOffset));	//num of words from fp
 	CodeBuffer::instance().emit("mul " + this->reg.regName + "," + this->reg.regName + ","
-								+ "$" + intToString(4));	//num of bytes from fp						
+								+ to_string(-4));	//num of bytes from fp						
 	CodeBuffer::instance().emit("addu " + this->reg.regName + "," + 
 								this->reg.regName + "," + "$fp"); //absolute address
 	CodeBuffer::instance().emit("lw " + this->reg.regName + "," + 
 								"(" + this->reg.regName + ")"); // loading id[exp]
-								
-	
 }
 
 
@@ -669,16 +650,12 @@ Exp::Exp(Id* id) {
 	this->reg = registerStack.top();
 	registerStack.pop();
 	
+	int currOffset = getSymbolById(TableStack, id->name).offset;
+	SymbolTable currScope = TableStack.top();
+	int firstOffset = currScope[0].offset;
+	int localOffset = currOffset - firstOffset ;
 	
-	int currOffset = OffsetStack.top();
-	OffsetStack.pop();
-	int prevOffset = OffsetStack.top();
-	OffsetStack.pop();
-	OffsetStack.push(prevOffset);
-	OffsetStack.push(currOffset);
-	int localOffset = currOffset - prevOffset ; // findActualOffset();
-	
-	CodeBuffer::instance().emit("lw " + this->reg.regName + "," + intToString((-localOffset)*4)+"($fp)");// loading id	
+	CodeBuffer::instance().emit("lw " + this->reg.regName + "," + to_string((-localOffset)*4)+"($fp)");// loading id	
 
 }
 
@@ -766,9 +743,9 @@ Exp::Exp(Exp* exp1, Exp* exp2, string opType,char* opVal) { // TODO: check for b
 		this->reg = exp1->reg;
 		string opCmd;
 		string optmp = string(opVal);
-		if(optmp = "AND")
+		if(optmp == "AND")
 			opCmd =  "and";
-		if(optmp = "OR")
+		if(optmp == "OR")
 			opCmd =  "or";
 		
 		CodeBuffer::instance().emit(opCmd + this->reg.regName + "," + 
@@ -791,16 +768,21 @@ Exp::Exp(Exp* exp1, Exp* exp2, string opType,char* opVal) { // TODO: check for b
 		
 		string opCmd;
 		string optmp = string(opVal);
-		switch(optmp){
-			case "==": opCmd = "seq"; break;
-			case "!=": opCmd = "sne"; break;
-			case "<": opCmd = "slt"; break;
-			case ">": opCmd = "sgt"; break;
-			case "<=": opCmd = "sle"; break;
-			case ">=": opCmd = "sge"; break;
+		if(optmp == "=="){
+			opCmd = "seq";
+		}else if(optmp == "!="){
+			opCmd = "sne";
+		}else if(optmp == "<"){
+			opCmd = "slt";
+		}else if(optmp == ">"){
+			opCmd = "sgt";
+		}else if(optmp == "<="){
+			opCmd = "sle";
+		}else if(optmp == ">="){
+			opCmd = "sge";
 		}
 
-		CodeBuffer::instance().emit( opCmd + " " + this->reg + "," +
+		CodeBuffer::instance().emit( opCmd + " " + this->reg.regName + "," +
 				exp1->reg.regName + "," + exp2->reg.regName ));
 		registerStack.push(exp2->reg);
 		
@@ -824,15 +806,18 @@ Exp::Exp(Exp* exp1, Exp* exp2, string opType,char* opVal) { // TODO: check for b
 		this->reg = exp1->reg;
 		string opCmd;
 		string optmp = string(opVal);
-		switch(optmp){
-			case "+": opCmd = "addu"; break;
-			case "-": opCmd = "subu"; break;
-			case "*": opCmd = "mul"; break;
-			case "/": opCmd = "div";
-					CodeBuffer::instance().emit("beq " + exp2->reg.regName + ",0,divException");
-					break;
+
+
+		if(optmp == "+"){
+			opCmd = "addu";
+		}else if(optmp == "-"){
+			opCmd = "subu";
+		}else if(optmp == "*"){
+			opCmd = "mul";
+		}else if(optmp == "/"){
+			opCmd = "div";
+			CodeBuffer::instance().emit("beq " + exp2->reg.regName + ",0,divException");
 		}
-		
 		CodeBuffer::instance().emit(opCmd + this->reg.regName + "," + 
 					exp1->reg.regName + "," + exp2->reg.regName);
 		

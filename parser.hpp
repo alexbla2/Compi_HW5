@@ -18,6 +18,7 @@ static int stringNum = 0;
 class Symbol;
 typedef vector<Symbol> SymbolTable;
 extern stack<SymbolTable> TableStack; 
+extern stack<int> OffsetStack;
 class Register;
 extern stack<Register> registerStack; //a stack for saving all the *Unused* Available registers
 
