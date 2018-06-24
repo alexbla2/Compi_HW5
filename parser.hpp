@@ -121,10 +121,16 @@ class String : public Node {
 	Register reg;			//temp reg to hold the string
 	string label;			//the label that will hold the string
 	
-    String(const char* yytext) : type("STRING"), value(yytext) {}
+    String(const char* yytext) ;
 };
 
 class Return : public Node{};
+
+class Relop : public Node{
+	public:
+		string op;
+		Relop(string yytext) : op(yytext) {}
+};
 
 class Num : public Node {
     public:
@@ -190,7 +196,8 @@ class Exp : public Node {
 	Exp(Num* num, b* byte);
 	Exp(string flag);
 	Exp(string operand, Exp* exp);
-	Exp(Exp* exp1,Exp* exp2,string opType,char* opVal);
+	Exp(Exp* exp1,Exp* exp2,Relop* op);
+	Exp(Exp* exp1,Exp* exp2,string opType,string opVal);
 };
 
 class Statements;
@@ -269,7 +276,7 @@ class Func : public Node {
 	Formals* formals;
 	
 	Func(){}
-	Func(RetType* ret, Id* id, Formals* formals, Statements* statements,stack<int>& OffsetStack);
+	Func(RetType* ret, Id* id, Formals* formals, Statements* statements);
 };
 
 class Funcs : public Node {
@@ -288,7 +295,7 @@ void checkMain();
 void saveFramePointer();
 void checkByteToLarge(int numVal);
 void StacksInit(stack<SymbolTable>& StackTable, stack<int>& OffsetStack) ;
-void registersInit(stack<Register>& registerStack);
+void RegistersInit(stack<Register>& registerStack);
 void addNewScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack) ;
 void scopePrint(SymbolTable& scope);
 void finishScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack);

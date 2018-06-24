@@ -6,6 +6,13 @@ using namespace output;
 #define LOW_REG 8
 #define HIGH_REG 26
 
+
+string toString ( int num ){
+   std::ostringstream ss;
+   ss << num;
+   return ss.str();
+}
+
 //saves the framePointer
 void saveFramePointer(){
 	CodeBuffer::instance().emit("move $fp,$sp");
@@ -15,7 +22,7 @@ void saveFramePointer(){
 //init all the registers that we can use into the stack
 void RegistersInit(stack<Register>& registerStack){
 	for(int i=LOW_REG;i<HIGH_REG;i++){
-		registerStack.push(Register(string("$" + to_string(i)), i));
+		registerStack.push(Register(string("$" + toString(i)), i));
 	}
 }
 
@@ -32,7 +39,7 @@ void saveUsedRegs(stack<Register> unUsedRegs){
 	for(int i=LOW_REG;i<HIGH_REG;i++){
 		if(used[i]){	//for each used reg
 			CodeBuffer::instance().emit("subu $sp,$sp,4");
-			CodeBuffer::instance().emit("sw $" + to_string(i) + ",0($sp)");
+			CodeBuffer::instance().emit("sw $" + toString(i) + ",0($sp)");
 		}
 	}
 	CodeBuffer::instance().emit("subu $sp,$sp,4");
@@ -58,7 +65,7 @@ void restoreUsedRegs(stack<Register> unUsedRegs){
 	}
 	for(int i=HIGH_REG-1; i>=LOW_REG; i++){ //loading from the opposite direction now
 		if(used[i]){
-			CodeBuffer::instance().emit("lw $" + to_string(i) + ",0($sp)"); //restore reg from stack
+			CodeBuffer::instance().emit("lw $" + toString(i) + ",0($sp)"); //restore reg from stack
 			CodeBuffer::instance().emit("addu $sp,$sp,4");
 		}
 	}
@@ -69,8 +76,8 @@ void StacksInit(stack<SymbolTable>& StackTable, stack<int>& OffsetStack) {
 	StackTable.push(global);
 	OffsetStack.push(0);
 	
-	std::vector<string> PrintTypes;
-	std::vector<string> PrintITypes;
+	vector<string> PrintTypes;
+	vector<string> PrintITypes;
 
 	PrintTypes.push_back("STRING");
 	PrintITypes.push_back("INT");
@@ -202,7 +209,7 @@ void addFuncToScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack,
 		errorDef(lineno, id->name);
 		exit(0);
 	}
-	std::vector<string> types;
+	vector<string> types;
 	for (vector<FormalDecl*>::reverse_iterator it = formals->formals.rbegin();
 	   it != formals->formals.rend(); it++) {
 			types.push_back((*it)->type);
@@ -289,7 +296,7 @@ Funcs::Funcs(Funcs* list, Func* func) : funcsList( vector<Func*>(list->funcsList
 	this->funcsList.push_back(func);
 }
 
-Func::Func(RetType* ret, Id* id, Formals* formals, Statements* statements,stack<int>& OffsetStack) :
+Func::Func(RetType* ret, Id* id, Formals* formals, Statements* statements) :
 id(id->name), funcRet(ret->type), formals(formals) {
 	stack<int> tempStack = OffsetStack;
 	int currentOff = tempStack.top();
@@ -297,7 +304,7 @@ id(id->name), funcRet(ret->type), formals(formals) {
 	int prevOff = tempStack.top();
 	int localOffset = currentOff - prevOff;
 	if(localOffset > 0){
-		CodeBuffer::instance().emit("addu $sp,$sp," + to_string(localOffset*4)); //saving space for func args in stack
+		CodeBuffer::instance().emit("addu $sp,$sp," + toString(localOffset*4)); //saving space for func args in stack
 	}
 	CodeBuffer::instance().emit("jr $ra"); //jump into return address
 }
@@ -371,7 +378,7 @@ Statement::Statement(Return* ret){
 	int prevOff = tempStack.top();
 	int localOffset = currentOff - prevOff;
 	if(localOffset > 0){
-		CodeBuffer::instance().emit("addu $sp,$sp," + to_string(localOffset*4)); //saving space for func args in stack
+		CodeBuffer::instance().emit("addu $sp,$sp," + toString(localOffset*4)); //saving space for func args in stack
 	}
 	CodeBuffer::instance().emit("jr $ra"); ///-----------------------------TODO
 }
@@ -384,7 +391,7 @@ Statement::Statement(Return* ret,Exp* expression) {
 	int prevOff = tempStack.top();
 	int localOffset = currentOff - prevOff;
 	if(localOffset > 0){
-		CodeBuffer::instance().emit("addu $sp,$sp," + to_string(localOffset*4)); //saving space for func args in stack
+		CodeBuffer::instance().emit("addu $sp,$sp," + toString(localOffset*4)); //saving space for func args in stack
 	}
   if(expression->type == "BOOL"){
     string trueLabel = CodeBuffer::instance().genLabel();
@@ -510,12 +517,10 @@ Statement::Statement(Id* id, Exp* exp) {
 			exit(0);
 		}
 	}
-	Symbol idSymbol = getSymbolById(TableStack,id->name);
-	string idType = idSymbol.type;
-	int offset = getLocalOffsetById(idSymbol.offset);//----------------------------------
+	int offset = getLocalOffsetById(sym.offset);//----------------------------------
 	//storing result in a temp register:
 
-	if(idSymbol.type == "BOOL"){
+	if(idType == "BOOL"){
 		exp->reg = registerStack.top();
 		registerStack.pop();
 		string trueLabel = CodeBuffer::instance().genLabel();
@@ -530,7 +535,7 @@ Statement::Statement(Id* id, Exp* exp) {
 		CodeBuffer::instance().bpatch(exp->bp.falseList,falseLabel);
 	}
 
-	CodeBuffer::instance().emit("sw "+exp->reg.regName+","+to_string((-offset)*4)+"($fp)");	//push to the stack.
+	CodeBuffer::instance().emit("sw "+exp->reg.regName+","+toString((-offset)*4)+"($fp)");	//push to the stack.
 	//adding local variable to stack:
 	registerStack.push(exp->reg); //free the exp reg
 }
@@ -566,9 +571,9 @@ Statement::Statement(Id* id, Exp* exp1,Exp* exp2){
 
 	int arrayOffset = getLocalOffsetById(arraySym.offset);
 	CodeBuffer::instance().emit("addu " + exp1->reg.regName + "," + exp1->reg.regName + ","
-								+ to_string(arrayOffset));	//num of words from fp
+								+ toString(arrayOffset));	//num of words from fp
 	CodeBuffer::instance().emit("mul " + exp1->reg.regName + "," + exp1->reg.regName + ","
-								+ to_string(-4));	//num of bytes from fp						
+								+ toString(-4));	//num of bytes from fp						
 	CodeBuffer::instance().emit("addu " + exp1->reg.regName + "," + 
 								exp1->reg.regName + "," + "$fp"); //absolute address
 	CodeBuffer::instance().emit("sw " + exp2->reg.regName + "," + 
@@ -747,7 +752,7 @@ Call::Call(Id* id, ExpList* expList) {
 			int offset = getLocalOffsetById(sym.offset);
 			int size = getArraySize(sym.type);
 			for(int k=0;k<size; k++){
-				CodeBuffer::instance().emit("move " + (*i).regName + "," + to_string(-offset*4)+ "($fp)");
+				CodeBuffer::instance().emit("move " + (*i).regName + "," + toString(-offset*4)+ "($fp)");
 				CodeBuffer::instance().emit("subu $sp,$sp,4");
 				CodeBuffer::instance().emit("sw " + (*i).regName + ",0($sp)"); //push registers to the stack.
 				offset++;
@@ -757,12 +762,14 @@ Call::Call(Id* id, ExpList* expList) {
 		j--;
 	}
 	CodeBuffer::instance().emit("jal " + id->name);
-  	CodeBuffer::instance().emit("addu $sp,$sp," + to_string(argsSize*4)); //saves space for all the fun arguments, clearing parameters
+  	CodeBuffer::instance().emit("addu $sp,$sp," + toString(argsSize*4)); //saves space for all the fun arguments, clearing parameters
   	restoreUsedRegs(regs);	//update the regStack accord.
 }
 
 String::String(const char* yytext) {
-  label = "lbl" + to_string(++stringNum); //updating the stringNum val to make a DIFFERENT label for diff msgs.
+	this->type = "STRING";
+	this->value = yytext; 
+  label = "lbl" + toString(++stringNum); //updating the stringNum val to make a DIFFERENT label for diff msgs.
   CodeBuffer::instance().emitData(label + ": " + ".asciiz " + string(yytext));
   reg = registerStack.top();
   registerStack.pop();
@@ -801,9 +808,9 @@ Exp::Exp(Id* id,Exp* exp){		//a 5 represents a[5] (for example)
 	CodeBuffer::instance().emit("bge " + exp->reg.regName + "," + temp +",indexException");
 	CodeBuffer::instance().emit("blt " + exp->reg.regName + ",0,indexException");
 	CodeBuffer::instance().emit("addu " + this->reg.regName + "," + this->reg.regName + ","
-								+ to_string(localOffset));	//num of words from fp
+								+ toString(localOffset));	//num of words from fp
 	CodeBuffer::instance().emit("mul " + this->reg.regName + "," + this->reg.regName + ","
-								+ to_string(-4));	//num of bytes from fp						
+								+ toString(-4));	//num of bytes from fp						
 	CodeBuffer::instance().emit("addu " + this->reg.regName + "," + 
 								this->reg.regName + "," + "$fp"); //absolute address
 	CodeBuffer::instance().emit("lw " + this->reg.regName + "," + 
@@ -827,7 +834,7 @@ Exp::Exp(Num* exp) : type("INT"), reg(exp->reg) , arrayID(""){} //exp uses the s
 
 Exp::Exp(Exp* exp) : type(exp->type), reg(exp->reg) , arrayID("") {} /// TODO : WHY REG ISNT COPIED?
 
-Exp::Exp(Id* id) {{
+Exp::Exp(Id* id) {
   
 	if (!checkSymDec(TableStack, id)) {
 		errorUndef(yylineno, id->name);
@@ -847,10 +854,9 @@ Exp::Exp(Id* id) {{
 	int firstOffset = currScope[0].offset;
 	int localOffset = currOffset - firstOffset ;
 	
-	CodeBuffer::instance().emit("lw " + this->reg.regName + "," + to_string((-localOffset)*4)+"($fp)");// loading id	
+	CodeBuffer::instance().emit("lw " + this->reg.regName + "," + toString((-localOffset)*4)+"($fp)");// loading id	
 
 }
-
 
 Exp::Exp(Call* call) { //TODO: X=CALL F() -> SHOULD EXP.REG GET RETURN VALUE?
 	this->arrayID="";
@@ -859,7 +865,6 @@ Exp::Exp(Call* call) { //TODO: X=CALL F() -> SHOULD EXP.REG GET RETURN VALUE?
 	registerStack.pop();
 	CodeBuffer::instance().emit("move " + reg.regName + ",$v0");
 }
-
 
 Exp::Exp(Num* num, b* byte) {
 	
@@ -902,7 +907,7 @@ Exp::Exp(string operand, Exp* exp) {		//not
 	
 }
 
-Exp::Exp(Exp* exp1, Exp* exp2, string opType,char* opVal) { // TODO: check for bool back patching
+Exp::Exp(Exp* exp1, Exp* exp2, string opType,string opVal) { // TODO: check for bool back patching
 	
 	if(opType == "LOGOP"){ //AND \ OR
 		if ((exp1->type != "BOOL") || (exp2->type != "BOOL")) {
@@ -920,37 +925,6 @@ Exp::Exp(Exp* exp1, Exp* exp2, string opType,char* opVal) { // TODO: check for b
 			this->bp.falseList=exp2->bp.falseList;
 			this->bp.trueList=CodeBuffer::instance().merge(exp1->bp.trueList,exp2->bp.trueList);
 		}
-	}else if(opType == "RELOP"){
-		
-		if ((exp1->type != "INT" && exp1->type != "BYTE") ||
-	 		 (exp2->type != "INT" && exp2->type != "BYTE")) {
-			errorMismatch(yylineno);
-			exit(0);
-		}
-		
-		this->type = "BOOL";
-		
-		string opCmd;
-		string optmp = string(opVal);
-		if(optmp == "=="){
-			opCmd = "beq";
-		}else if(optmp == "!="){
-			opCmd = "bne";
-		}else if(optmp == "<"){
-			opCmd = "blt";
-		}else if(optmp == ">"){
-			opCmd = "bgt";
-		}else if(optmp == "<="){
-			opCmd = "ble";
-		}else if(optmp == ">="){
-			opCmd = "bge";
-		}
-
-		this->bp.trueList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit(
-    		opCmd +" "+ exp1->reg.regName+","+ exp2->reg.regName+","));
-  		this->bp.falseList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
-		
-		
 	}else if(opType == "BINOP"){//--------
 		
 		if ((exp1->type != "INT" && exp1->type != "BYTE") ||
@@ -989,6 +963,40 @@ Exp::Exp(Exp* exp1, Exp* exp2, string opType,char* opVal) { // TODO: check for b
 		
 		registerStack.push(exp2->reg); //we no longer need the reg2
 	}
+	this->arrayID="";
+}
+
+Exp::Exp(Exp* exp1,Exp* exp2,Relop* op){	
+
+	if ((exp1->type != "INT" && exp1->type != "BYTE") ||
+			(exp2->type != "INT" && exp2->type != "BYTE")) {
+		errorMismatch(yylineno);
+		exit(0);
+	}
+	
+	this->type = "BOOL";
+	
+	string opCmd;
+	string opVal=op->op;
+
+	if(opVal == "=="){
+		opCmd = "beq";
+	}else if(opVal == "!="){
+		opCmd = "bne";
+	}else if(opVal == "<"){
+		opCmd = "blt";
+	}else if(opVal == ">"){
+		opCmd = "bgt";
+	}else if(opVal == "<="){
+		opCmd = "ble";
+	}else if(opVal == ">="){
+		opCmd = "bge";
+	}
+
+	this->bp.trueList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit(
+		opCmd +" "+ exp1->reg.regName+","+ exp2->reg.regName+","));
+	this->bp.falseList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+	this->arrayID="";
 }
 
 

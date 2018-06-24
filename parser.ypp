@@ -381,7 +381,7 @@ Exp: LPAREN Exp RPAREN { $$ = new Exp( (Exp*)$2); }
     | Exp MINUS Exp { $$ = new Exp( (Exp*)$1 ,(Exp*)$3, "BINOP", "-"); }
     | Exp MUL Exp { $$ = new Exp( (Exp*)$1 ,(Exp*)$3, "BINOP", "*"); }        //OPs are sent as the 3th var to Exp cons **
     | Exp DIV Exp { $$ = new Exp( (Exp*)$1 ,(Exp*)$3, "BINOP", "/"); }    //-------------------------------------
-    | Exp RELOP Exp { $$ = new Exp((Exp*)$1 ,(Exp*)$3,"RELOP",yytext);  //relop sent as the last var   
+    | Exp RELOP Exp { $$ = new Exp((Exp*)$1 ,(Exp*)$3,(Relop*)$2);  //relop sent as the last var   
 };
 
 Exp: Exp AND MARKER_M_EXP Exp { //added marker here **

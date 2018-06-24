@@ -9,7 +9,6 @@
 %option noyywrap
 
 realop ("=="|"!="|"<"|">"|"<="|">=")
-//binop ("+"|"-"|"*"|"/")
 id ([a-zA-Z][a-zA-Z0-9]*)
 num (0|[1-9][0-9]*)
 comment ("//"[^\r\n]*[\r|\n|\r\n]?)
@@ -42,7 +41,7 @@ newline 	(\r\n|\r|\n)
 "[" 	{	 return LBRACK;}
 "]"		{	 return RBRACK;}
 "=" 	{    return ASSIGN;}
-{realop} {	return RELOP;}
+{realop} { yylval= new Relop(yytext);	return RELOP;}
 
 "+" { return PLUS; }
 "-" { return MINUS; }
