@@ -406,6 +406,7 @@ Statement::Statement(Return* ret,Exp* expression) {
     CodeBuffer::instance().bpatch(expression->bp.falseList,falseLabel);
   }else{
     CodeBuffer::instance().emit("move $v0," + expression->reg.regName);
+	registerStack.push(expression->reg);
   }
   CodeBuffer::instance().emit("jr $ra");
 }
@@ -580,7 +581,7 @@ Statement::Statement(Id* id, Exp* exp1,Exp* exp2){
 								"(" + exp1->reg.regName + ")"); // writing exp2 to id[exp1]
 }
 
-//TODO--------------------------------------------------------
+//While statement//TODO---------------------------------------------------------------------------------
 Statement::Statement(Exp* exp, Statement* statement) {
 	CodeBuffer::instance().bpatch(exp->bp.trueList,statement->bp.quad);
 	this->bp.falseList=CodeBuffer::instance().merge(exp->bp.falseList,statement->bp.nextList);
@@ -945,13 +946,13 @@ Exp::Exp(Exp* exp1, Exp* exp2, string opType,string opVal) { // TODO: check for 
 		string optmp = string(opVal);
 
 		if(optmp == "+"){
-			opCmd = "addu";
+			opCmd = "addu ";
 		}else if(optmp == "-"){
-			opCmd = "subu";
+			opCmd = "subu ";
 		}else if(optmp == "*"){
-			opCmd = "mul";
+			opCmd = "mul ";
 		}else if(optmp == "/"){
-			opCmd = "div";
+			opCmd = "div ";
 			CodeBuffer::instance().emit("beq " + exp2->reg.regName + ",0,divException");
 		}
 		CodeBuffer::instance().emit(opCmd + this->reg.regName + "," + 
