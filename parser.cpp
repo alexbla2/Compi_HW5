@@ -13,7 +13,7 @@ void saveFramePointer(){
 }
 
 //init all the registers that we can use into the stack
-void registersInit(stack<Register>& registerStack){
+void RegistersInit(stack<Register>& registerStack){
 	for(int i=LOW_REG;i<HIGH_REG;i++){
 		registerStack.push(Register(string("$" + to_string(i)), i));
 	}
@@ -155,7 +155,7 @@ int getArraySize(string type){
 	return atoi(temp);
 }
 
-//need TODO
+//adding func arguments to the scope
 void addFuncSymScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack,
                        Formals* formals, int lineno) {
   int offset = 0;
@@ -194,6 +194,7 @@ Type getTypeById(stack<SymbolTable>& StackTable, Id* id) {
 	return Type();
 }
 
+//adding func symbol to scope
 void addFuncToScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack,
                    RetType* ret, Id* id, Formals* formals, int lineno) {
 
@@ -290,9 +291,13 @@ Funcs::Funcs(Funcs* list, Func* func) : funcsList( vector<Func*>(list->funcsList
 
 Func::Func(RetType* ret, Id* id, Formals* formals, Statements* statements,stack<int>& OffsetStack) :
 id(id->name), funcRet(ret->type), formals(formals) {
-	int offset = OffsetStack.top();
-	if(offset > 0){
-		CodeBuffer::instance().emit("addu $sp,$sp," + to_string(offset*4)); //saving space for func args in stack
+	stack<int> tempStack = OffsetStack;
+	int currentOff = tempStack.top();
+	tempStack.pop();
+	int prevOff = tempStack.top();
+	int localOffset = currentOff - prevOff;
+	if(localOffset > 0){
+		CodeBuffer::instance().emit("addu $sp,$sp," + to_string(localOffset*4)); //saving space for func args in stack
 	}
 	CodeBuffer::instance().emit("jr $ra"); //jump into return address
 }
@@ -360,15 +365,27 @@ Statement::Statement(Statements* statements) {
 }
 
 Statement::Statement(Return* ret){
-	CodeBuffer::instance().emit("jr $ra");
+	stack<int> tempStack = OffsetStack;
+	int currentOff = tempStack.top();
+	tempStack.pop();
+	int prevOff = tempStack.top();
+	int localOffset = currentOff - prevOff;
+	if(localOffset > 0){
+		CodeBuffer::instance().emit("addu $sp,$sp," + to_string(localOffset*4)); //saving space for func args in stack
+	}
+	CodeBuffer::instance().emit("jr $ra"); ///-----------------------------TODO
 }
 
-Statement::Statement(Return* ret,Exp* expression,stack<int>& OffsetStack) { 
+Statement::Statement(Return* ret,Exp* expression) { 
   this->bp.quad = CodeBuffer::instance().genLabel();
-  int offset = OffsetStack.top();
-  if(offset>0){
-    CodeBuffer::instance().emit("addu $sp,$sp,"+ to_string((offset*4)));
-  }
+  	stack<int> tempStack = OffsetStack;
+	int currentOff = tempStack.top();
+	tempStack.pop();
+	int prevOff = tempStack.top();
+	int localOffset = currentOff - prevOff;
+	if(localOffset > 0){
+		CodeBuffer::instance().emit("addu $sp,$sp," + to_string(localOffset*4)); //saving space for func args in stack
+	}
   if(expression->type == "BOOL"){
     string trueLabel = CodeBuffer::instance().genLabel();
     CodeBuffer::instance().emit("li $v0,1");
@@ -383,7 +400,7 @@ Statement::Statement(Return* ret,Exp* expression,stack<int>& OffsetStack) {
   }else{
     CodeBuffer::instance().emit("move $v0," + expression->reg.regName);
   }
-  //CodeBuffer::instance().emit("jr $ra"); maybe we need in only in FUNC??---------------------
+  CodeBuffer::instance().emit("jr $ra");
 }
 
 Statement::Statement(Exp* exp) {}
@@ -396,9 +413,17 @@ Statement::Statement(Type* type, Id* id) {
 		errorDef(yylineno, id->name);
 		exit(0);
 	}
+	//assignning place for local var in stack
+  	Register reg = registerStack.top();
+	registerStack.pop(); 
+	CodeBuffer::instance().emit("li " +reg.regName +",0"); //default value to var!
+	CodeBuffer::instance().emit("subu $sp,$sp,4");		//add place for local variable in the stack.
+	CodeBuffer::instance().emit("sw "+reg.regName +",0($sp)");//push to the stack.
+	//adding local variable to stack:
+	registerStack.push(reg);
 }
 
-//array
+//array - int a[4]
 Statement::Statement(Type* type, Id* id, Num* num){
 	if(num->value <1 || num->value >255){
 		errorInvalidArraySize(yylineno,id->name);
@@ -408,6 +433,16 @@ Statement::Statement(Type* type, Id* id, Num* num){
 		errorDef(yylineno, id->name);
 		exit(0);
 	}
+	//assignning place for local var in stack
+  	Register reg = registerStack.top();
+	registerStack.pop(); 
+	CodeBuffer::instance().emit("li " +reg.regName +",0"); //default value to array!
+	for(int i=0;i<num->value;i++){
+		CodeBuffer::instance().emit("subu $sp,$sp,4");		//add place for local variable in the stack.
+		CodeBuffer::instance().emit("sw "+reg.regName +",0($sp)");//push to the stack.
+	}
+	//adding local variable to stack:
+	registerStack.push(reg);
 }
 
 Statement::Statement(Type* type, Id* id, Num* num,b* b1){
@@ -422,6 +457,16 @@ Statement::Statement(Type* type, Id* id, Num* num,b* b1){
 		errorDef(yylineno, id->name);
 		exit(0);
 	}
+	//assignning place for local var in stack
+  	Register reg = registerStack.top();
+	registerStack.pop(); 
+	CodeBuffer::instance().emit("li " +reg.regName +",0"); //default value to array!
+	for(int i=0;i<num->value;i++){
+		CodeBuffer::instance().emit("subu $sp,$sp,4");		//add place for local variable in the stack.
+		CodeBuffer::instance().emit("sw "+reg.regName +",0($sp)");//push to the stack.
+	}
+	//adding local variable to stack:
+	registerStack.push(reg);
 }
 
 void checkByteToLarge(int numVal){
@@ -433,7 +478,17 @@ void checkByteToLarge(int numVal){
 	}
 }
 
-//for array var
+int getLocalOffsetById(int local){
+	stack<int> tempStack = OffsetStack;
+	if(local < 0){
+		return local; //func argument
+	}
+	tempStack.pop();
+	int prevOff = tempStack.top();
+	return (local - prevOff);
+}
+
+//assign to var
 Statement::Statement(Id* id, Exp* exp) {
 
 	if (!checkSymDec(TableStack, id)) {			//check a[0] if a func given a[5]
@@ -455,6 +510,29 @@ Statement::Statement(Id* id, Exp* exp) {
 			exit(0);
 		}
 	}
+	Symbol idSymbol = getSymbolById(TableStack,id->name);
+	string idType = idSymbol.type;
+	int offset = getLocalOffsetById(idSymbol.offset);//----------------------------------
+	//storing result in a temp register:
+
+	if(idSymbol.type == "BOOL"){
+		exp->reg = registerStack.top();
+		registerStack.pop();
+		string trueLabel = CodeBuffer::instance().genLabel();
+		CodeBuffer::instance().emit("li " +exp->reg.regName+",1");
+		vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+		string falseLabel = CodeBuffer::instance().genLabel();
+		CodeBuffer::instance().emit("li " +exp->reg.regName+",0");
+		nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
+		string next = CodeBuffer::instance().genLabel();
+		CodeBuffer::instance().bpatch(nexts,next);
+		CodeBuffer::instance().bpatch(exp->bp.trueList,trueLabel);
+		CodeBuffer::instance().bpatch(exp->bp.falseList,falseLabel);
+	}
+
+	CodeBuffer::instance().emit("sw "+exp->reg.regName+","+to_string((-offset)*4)+"($fp)");	//push to the stack.
+	//adding local variable to stack:
+	registerStack.push(exp->reg); //free the exp reg
 }
 
 //assign exp2 into id[exp1]
@@ -464,12 +542,12 @@ Statement::Statement(Id* id, Exp* exp1,Exp* exp2){
 		exit(0);
 	}
 	string idType = getTypeById(TableStack, id).type;	//is array!
-	size_t pos=idType.find("[");
-	if(pos == -1){
+	size_t pos1=idType.find("[");
+	if(pos1 == -1){
 		errorMismatch(yylineno);
 		exit(0);
 	}
-	string idTemp= idType.substr(0,pos);
+	string idTemp= idType.substr(0,pos1);
 	if ( idTemp != exp2->type ) {
 	
 		if ( idTemp == "INT" && exp2->type == "BYTE") {
@@ -479,10 +557,32 @@ Statement::Statement(Id* id, Exp* exp1,Exp* exp2){
 			exit(0);
 		}
 	}
+	Symbol arraySym = getSymbolById(TableStack,id->name);
+	
+	int pos2=idType.find("]");
+	string temp = idType.substr(pos1+1,pos2-pos1-1);
+	CodeBuffer::instance().emit("bge " + exp1->reg.regName + "," + temp +",indexException");
+	CodeBuffer::instance().emit("blt " + exp1->reg.regName + ",0,indexException");
+
+	int arrayOffset = getLocalOffsetById(arraySym.offset);
+	CodeBuffer::instance().emit("addu " + exp1->reg.regName + "," + exp1->reg.regName + ","
+								+ to_string(arrayOffset));	//num of words from fp
+	CodeBuffer::instance().emit("mul " + exp1->reg.regName + "," + exp1->reg.regName + ","
+								+ to_string(-4));	//num of bytes from fp						
+	CodeBuffer::instance().emit("addu " + exp1->reg.regName + "," + 
+								exp1->reg.regName + "," + "$fp"); //absolute address
+	CodeBuffer::instance().emit("sw " + exp2->reg.regName + "," + 
+								"(" + exp1->reg.regName + ")"); // writing exp2 to id[exp1]
 }
 
-
-Statement::Statement(Exp* exp, Statement* statement) {}
+//TODO--------------------------------------------------------
+Statement::Statement(Exp* exp, Statement* statement) {
+	CodeBuffer::instance().bpatch(exp->bp.trueList,statement->bp.quad);
+	this->bp.falseList=CodeBuffer::instance().merge(exp->bp.falseList,statement->bp.nextList);
+	this->bp.breakList=CodeBuffer::instance().merge(exp->bp.falseList,statement->bp.breakList);
+	CodeBuffer::instance().emit("j "+ exp->bp.quad);
+	CodeBuffer::instance().bpatch(this->bp.falseList,CodeBuffer::instance().genLabel()); 
+}
 
 Statement::Statement(Type* type, Id* id, Exp* exp) {
 	
@@ -498,17 +598,59 @@ Statement::Statement(Type* type, Id* id, Exp* exp) {
 			exit(0);
 		}
 	}
+
+	if(type->type == "BOOL"){
+		exp->reg = registerStack.top();
+		registerStack.pop();
+		string trueLabel = CodeBuffer::instance().genLabel();
+		CodeBuffer::instance().emit("li " + exp->reg.regName +",1");
+		vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+		string falseLabel = CodeBuffer::instance().genLabel(); 
+		CodeBuffer::instance().emit("li " + exp->reg.regName +",0");
+		nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
+		string next = CodeBuffer::instance().genLabel();
+		CodeBuffer::instance().bpatch(nexts,next);
+		CodeBuffer::instance().bpatch(exp->bp.trueList,trueLabel);
+		CodeBuffer::instance().bpatch(exp->bp.falseList,falseLabel);
+	}
+	CodeBuffer::instance().emit("subu $sp,$sp,4");			//add place for local variable in the stack.
+	CodeBuffer::instance().emit("sw "+ exp->reg.regName +",0($sp)");//push to the stack.
+	//adding local variable to stack:
+	registerStack.push(exp->reg);
 }
 
 
-Statement::Statement(Exp* exp, Statement* ifStatment,
-                     Statement* elseStatement) {}
+Statement::Statement(Exp* exp, Statement* ifStatment,Statement* N, Statement* elseStatement) {
+	CodeBuffer::instance().bpatch(exp->bp.trueList,ifStatment->bp.quad);
+	CodeBuffer::instance().bpatch(exp->bp.falseList,elseStatement->bp.quad);
+	this->bp.nextList=CodeBuffer::instance().merge(
+	CodeBuffer::instance().merge(ifStatment->bp.nextList,elseStatement->bp.nextList),
+	N->bp.nextList);
+	this->bp.breakList = CodeBuffer::instance().merge(ifStatment->bp.breakList,elseStatement->bp.breakList);
+}
 
 
 ExpList::ExpList(Exp* exp) {
-
 	this->types = vector<string>();
   	this->types.push_back(exp->type);
+	this->ids.push_back(exp->arrayID);
+
+	if(exp->type=="BOOL"){
+		exp->reg = registerStack.top();
+		registerStack.pop();
+		string trueLabel = CodeBuffer::instance().genLabel();
+		CodeBuffer::instance().emit("li "+ exp->reg.regName +",1");
+		vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+		string falseLabel = CodeBuffer::instance().genLabel();
+		CodeBuffer::instance().emit("li "+ exp->reg.regName +",0");
+		nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
+		string next = CodeBuffer::instance().genLabel();
+		CodeBuffer::instance().bpatch(nexts,next);
+		CodeBuffer::instance().bpatch(exp->bp.trueList,trueLabel);
+		CodeBuffer::instance().bpatch(exp->bp.falseList,falseLabel);
+  	}
+	this->registers = vector<Register>();
+ 	this->registers.push_back(exp->reg);
 }
 
 
@@ -516,8 +658,31 @@ ExpList::ExpList(Exp* exp, ExpList* expList){
   
 	this->types = vector<string>();
 	this->types.push_back(exp->type);
-	for(int i=0; i<expList->types.size(); i++)
+	this->ids.push_back(exp->arrayID);
+	for(int i=0; i<expList->types.size(); i++){
 		this->types.push_back(expList->types[i]);
+		this->ids.push_back(expList->ids[i]);
+	}
+	
+	if(exp->type=="BOOL"){
+		exp->reg = registerStack.top();
+		registerStack.pop();
+		string trueLabel = CodeBuffer::instance().genLabel();
+		CodeBuffer::instance().emit("li "+ exp->reg.regName+",1");
+		vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+		string falseLabel = CodeBuffer::instance().genLabel();
+		CodeBuffer::instance().emit("li "+exp->reg.regName+",0");
+		nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
+		string next = CodeBuffer::instance().genLabel();
+		CodeBuffer::instance().bpatch(nexts,next);
+		CodeBuffer::instance().bpatch(exp->bp.trueList,trueLabel);
+		CodeBuffer::instance().bpatch(exp->bp.falseList,falseLabel);
+  }
+  this->registers = vector<Register>();
+  this->registers.push_back(exp->reg);
+  for(int i=0; i<expList->registers.size(); i++){
+    this->registers.push_back(expList->registers[i]);
+  }
 }
 
 
@@ -539,9 +704,7 @@ Call::Call(Id* id) {
 		exit(0);
 	}
 	this->id = id->name;
-	int funArgs = sym.args.size(); //num of args of the func called
 	CodeBuffer::instance().emit("jal " + id->name); //jump to func + stores ra
-  	CodeBuffer::instance().emit("addu $sp,$sp,"+to_string(funArgs*4)); //saves space for all the fun arguments??? clearing!?!
   	restoreUsedRegs(regs);
 }
 
@@ -550,35 +713,56 @@ Call::Call(Id* id, ExpList* expList) {
 	stack<Register> regs = registerStack;
   	saveUsedRegs(regs);
 	int funArgs;
+	int argsSize=0;
+	Id* newId;
 
 	if (!checkSymDec(TableStack, id)) {
 		errorUndefFunc(yylineno, id->name);
 		exit(0);
-	}else{
-		Symbol sym = getSymbolById(TableStack, id->name);
-		funArgs = sym.args.size(); //num of args of the func called
-		if (!(sym.isFunc)) {								//make outer func
-			errorUndefFunc(yylineno, id->name);
-			exit(0);
-		} 
-		if (!checkMatchingTypes(sym.args,expList->types)) {
-			errorPrototypeMismatch(yylineno, id->name, sym.args);
-			exit(0);
-		}
 	}
+	Symbol sym = getSymbolById(TableStack, id->name);
+	if (!(sym.isFunc)) {								//make outer func
+		errorUndefFunc(yylineno, id->name);
+		exit(0);
+	}
+	if (!checkMatchingTypes(sym.args,expList->types)) {
+		errorPrototypeMismatch(yylineno, id->name, sym.args);
+		exit(0);
+	}
+
+	funArgs = sym.args.size(); //num of args of the func called - can be arrays as well!
+	for(int i=0;i<funArgs;i++){
+		argsSize += getArraySize(sym.args[i]);		//update args size 
+	}
+
 	this->id = id->name;
+	int j = expList->ids.size()-1;
 	for(vector<Register>::reverse_iterator i=expList->registers.rbegin(); i!=expList->registers.rend(); i++){
-		CodeBuffer::instance().emit("subu $sp,$sp,4");
-		CodeBuffer::instance().emit("sw " + (*i).regName + ",0($sp)"); //push registers to the stack.
-		registerStack.push((*i)); //mark reg as unUsed!
-  	}
+		if(expList->ids[j] == ""){ //not an array
+			CodeBuffer::instance().emit("subu $sp,$sp,4");
+			CodeBuffer::instance().emit("sw " + (*i).regName + ",0($sp)"); //push registers to the stack.
+			regs.push((*i)); //mark reg as unUsed!//-------------------------------------------------------------------TODO
+		}else{ //is an array
+			Symbol sym = getSymbolById(TableStack, expList->ids[j]);
+			int offset = getLocalOffsetById(sym.offset);
+			int size = getArraySize(sym.type);
+			for(int k=0;k<size; k++){
+				CodeBuffer::instance().emit("move " + (*i).regName + "," + to_string(-offset*4)+ "($fp)");
+				CodeBuffer::instance().emit("subu $sp,$sp,4");
+				CodeBuffer::instance().emit("sw " + (*i).regName + ",0($sp)"); //push registers to the stack.
+				offset++;
+			}
+			regs.push((*i)); //mark reg as unUsed!//--------------------------------------------------TODO
+		}
+		j--;
+	}
 	CodeBuffer::instance().emit("jal " + id->name);
-  	CodeBuffer::instance().emit("addu $sp,$sp," + to_string(funArgs*4)); //saves space for all the fun arguments, clearing parameters
+  	CodeBuffer::instance().emit("addu $sp,$sp," + to_string(argsSize*4)); //saves space for all the fun arguments, clearing parameters
   	restoreUsedRegs(regs);	//update the regStack accord.
 }
 
 String::String(const char* yytext) {
-  label = "msg" + to_string(++stringNum); //updating the stringNum val to make a DIFFERENT label for diff msgs.
+  label = "lbl" + to_string(++stringNum); //updating the stringNum val to make a DIFFERENT label for diff msgs.
   CodeBuffer::instance().emitData(label + ": " + ".asciiz " + string(yytext));
   reg = registerStack.top();
   registerStack.pop();
@@ -586,7 +770,7 @@ String::String(const char* yytext) {
 }
 
 ///---------------------------------------add reg val to exp funcs
-Exp::Exp(): type("") {}
+Exp::Exp(): type(""), arrayID("") {}
 
 
 Exp::Exp(Id* id,Exp* exp){		//a 5 represents a[5] (for example)
@@ -612,6 +796,7 @@ Exp::Exp(Id* id,Exp* exp){		//a 5 represents a[5] (for example)
 	SymbolTable currScope = TableStack.top();
 	int firstOffset = currScope[0].offset;
 	int localOffset = currOffset - firstOffset ;// findActualOffset();
+	this->arrayID="";
 	
 	CodeBuffer::instance().emit("bge " + exp->reg.regName + "," + temp +",indexException");
 	CodeBuffer::instance().emit("blt " + exp->reg.regName + ",0,indexException");
@@ -633,20 +818,27 @@ Exp::Exp(String* exp,bool isAprintFunc,bool isAprintiFunc) { //help please
 		exit(0);
 	}
 	this->type = "STRING";
+	this->arrayID="";
+	this->reg = exp->reg;
 }
 
 
-Exp::Exp(Num* exp) : type("INT"), reg(exp->reg){} //exp uses the same reg as num
+Exp::Exp(Num* exp) : type("INT"), reg(exp->reg) , arrayID(""){} //exp uses the same reg as num
 
-Exp::Exp(Exp* exp) : type(exp->type), reg(exp->reg){} /// TODO : WHY REG ISNT COPIED?
+Exp::Exp(Exp* exp) : type(exp->type), reg(exp->reg) , arrayID("") {} /// TODO : WHY REG ISNT COPIED?
 
-Exp::Exp(Id* id) {
+Exp::Exp(Id* id) {{
   
 	if (!checkSymDec(TableStack, id)) {
 		errorUndef(yylineno, id->name);
 		exit(0);
 	}
 	this->type = getTypeById(TableStack, id).type;
+	if(isArray(this->type)){
+		this->arrayID = id->name;
+	}else{
+		this->arrayID = "";
+	}
 	this->reg = registerStack.top();
 	registerStack.pop();
 	
@@ -661,11 +853,10 @@ Exp::Exp(Id* id) {
 
 
 Exp::Exp(Call* call) { //TODO: X=CALL F() -> SHOULD EXP.REG GET RETURN VALUE?
-	
+	this->arrayID="";
 	this->type = getSymbolById(TableStack, call->id).ret;
 	this->reg = registerStack.top();
 	registerStack.pop();
-	
 	CodeBuffer::instance().emit("move " + reg.regName + ",$v0");
 }
 
@@ -682,29 +873,18 @@ Exp::Exp(Num* num, b* byte) {
 		exit(0);
 	}
 	
-/*	this->reg = registerStack.top();
-	registerStack.pop();
-	string val = string(s.str())
-	CodeBuffer::instance().emit("li" + this->reg.regName + "," + val);*/
+	this->reg = num->reg;
+	this->arrayID = "";
 }
 
 Exp::Exp(string flag) {
-	
-	if(flag == "TRUE" || flag == "FALSE"){
-		this->type="BOOL";
-		this->reg = registerStack.top();
-		registerStack.pop();
-		string val;
-		
-		if( flag == "TRUE" )
-			val = "$1";
-		else
-			val = "$0";
-		
-		CodeBuffer::instance().emit("li" + this->reg.regName + "," + val);
-		
+	this->type="BOOL";
+	this->arrayID = "";
+	if(flag == "TRUE" ){
+		this->bp.trueList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+	}else{
+		this->bp.falseList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
 	}
-	
 }
 
 Exp::Exp(string operand, Exp* exp) {		//not
@@ -714,48 +894,33 @@ Exp::Exp(string operand, Exp* exp) {		//not
 			errorMismatch(yylineno);
 			exit(0);
 		}
-		
+		this->arrayID="";
 		this->type="BOOL";
-		this->reg = exp->reg;
-		/*this->reg = registerStack.top();
-		registerStack.pop();*/
-
-		Register tmp = registerStack.top();
-		CodeBuffer::instance().emit("li" + tmp.regName + ", $0");
-		CodeBuffer::instance().emit("seq" + this->reg.regName + "," + 
-					this->reg.regName + "," + tmp.regName );
+		this->bp.trueList=exp->bp.falseList;
+  		this->bp.falseList=exp->bp.trueList;
 	}
 	
 }
 
-//-----------------------------------------------------------------to change a bit
 Exp::Exp(Exp* exp1, Exp* exp2, string opType,char* opVal) { // TODO: check for bool back patching
 	
-	if(opType == "LOGOP"){
-		
+	if(opType == "LOGOP"){ //AND \ OR
 		if ((exp1->type != "BOOL") || (exp2->type != "BOOL")) {
 			errorMismatch(yylineno);
 			exit(0);
 		}
 		
 		this->type = "BOOL";
-		
-		this->reg = exp1->reg;
-		string opCmd;
-		string optmp = string(opVal);
-		if(optmp == "AND")
-			opCmd =  "and";
-		if(optmp == "OR")
-			opCmd =  "or";
-		
-		CodeBuffer::instance().emit(opCmd + this->reg.regName + "," + 
-					exp1->reg.regName + "," + exp2->reg.regName);
-		
-		registerStack.push(exp2->reg);
-		
-	}
-	
-	else if(opType == "RELOP"){//--------
+		if(opVal == "AND"){
+			CodeBuffer::instance().bpatch(exp1->bp.trueList,exp2->bp.quad);
+			this->bp.trueList=exp2->bp.trueList;
+			this->bp.falseList=CodeBuffer::instance().merge(exp1->bp.falseList,exp2->bp.falseList);
+		}else if(opVal == "OR"){ 	//OR	
+			CodeBuffer::instance().bpatch(exp1->bp.falseList,exp2->bp.quad);
+			this->bp.falseList=exp2->bp.falseList;
+			this->bp.trueList=CodeBuffer::instance().merge(exp1->bp.trueList,exp2->bp.trueList);
+		}
+	}else if(opType == "RELOP"){
 		
 		if ((exp1->type != "INT" && exp1->type != "BYTE") ||
 	 		 (exp2->type != "INT" && exp2->type != "BYTE")) {
@@ -764,31 +929,29 @@ Exp::Exp(Exp* exp1, Exp* exp2, string opType,char* opVal) { // TODO: check for b
 		}
 		
 		this->type = "BOOL";
-		this->reg = exp1->reg;
 		
 		string opCmd;
 		string optmp = string(opVal);
 		if(optmp == "=="){
-			opCmd = "seq";
+			opCmd = "beq";
 		}else if(optmp == "!="){
-			opCmd = "sne";
+			opCmd = "bne";
 		}else if(optmp == "<"){
-			opCmd = "slt";
+			opCmd = "blt";
 		}else if(optmp == ">"){
-			opCmd = "sgt";
+			opCmd = "bgt";
 		}else if(optmp == "<="){
-			opCmd = "sle";
+			opCmd = "ble";
 		}else if(optmp == ">="){
-			opCmd = "sge";
+			opCmd = "bge";
 		}
 
-		CodeBuffer::instance().emit( opCmd + " " + this->reg.regName + "," +
-				exp1->reg.regName + "," + exp2->reg.regName ));
-		registerStack.push(exp2->reg);
+		this->bp.trueList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit(
+    		opCmd +" "+ exp1->reg.regName+","+ exp2->reg.regName+","));
+  		this->bp.falseList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
 		
-	}
-	
-	else if(opType == "BINOP"){//--------
+		
+	}else if(opType == "BINOP"){//--------
 		
 		if ((exp1->type != "INT" && exp1->type != "BYTE") ||
 	 		 (exp2->type != "INT" && exp2->type != "BYTE")) {
@@ -803,10 +966,9 @@ Exp::Exp(Exp* exp1, Exp* exp2, string opType,char* opVal) { // TODO: check for b
 			this->type = "BYTE";
 		}
 		
-		this->reg = exp1->reg;
+		this->reg = exp1->reg; //using exp1 reg
 		string opCmd;
 		string optmp = string(opVal);
-
 
 		if(optmp == "+"){
 			opCmd = "addu";
@@ -821,11 +983,11 @@ Exp::Exp(Exp* exp1, Exp* exp2, string opType,char* opVal) { // TODO: check for b
 		CodeBuffer::instance().emit(opCmd + this->reg.regName + "," + 
 					exp1->reg.regName + "," + exp2->reg.regName);
 		
-		if(this->type == "BYTE")
+		if(this->type == "BYTE"){
 			CodeBuffer::instance().emit("andi "+this->reg.regName+", 0x000000ff,"+this->reg.regName);
+		}
 		
-		registerStack.push(exp2->reg);
-		
+		registerStack.push(exp2->reg); //we no longer need the reg2
 	}
 }
 

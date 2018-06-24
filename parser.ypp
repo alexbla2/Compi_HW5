@@ -225,7 +225,7 @@ Statement: RETURN Exp SC {
             exit(0);
         }
     }
-    $$ = new Statement((Return*)$1,(Exp*)$2,OffsetStack);
+    $$ = new Statement((Return*)$1,(Exp*)$2);
 };
 
 //if statement
@@ -255,7 +255,7 @@ MARKER_N_IF : {
 Statement: IF LPAREN checkExpType MARKER_M_IF AddNewScope Statement ExitScope ELSE MARKER_N_IF MARKER_M_IF AddNewScope Statement {
     ((Statement*)$6)->bp.quad = ((Statement*)$4)->bp.quad;
     ((Statement*)$12)->bp.quad = ((Statement*)$10)->bp.quad;
-    $$ = new Statement( (Exp*)$3, (Statement*)$6, (Statement*)$12);
+    $$ = new Statement( (Exp*)$3, (Statement*)$6,(Statement*)$9, (Statement*)$12);
     finishScope(TableStack,OffsetStack);
     delete $9; //delete N MARKER
 };

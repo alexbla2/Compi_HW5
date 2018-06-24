@@ -143,9 +143,10 @@ class Exp;
 class ExpList : public Node {
 	public:
 	vector<string> types;	//vector of type classes
-	vector<Register> registers;		//vector of registers that hold every exp in the expList				
+	vector<Register> registers;		//vector of registers that hold every exp in the expList	
+	vector<string> ids;			
 
-	ExpList() : types( vector<string>() ), registers(vector<Register>()) {}
+	ExpList() : types( vector<string>() ), registers(vector<Register>()) , ids(vector<string>()) {}
 	ExpList(Exp* exp);
 	ExpList(Exp* exp, ExpList* expList);
 };
@@ -176,7 +177,8 @@ class Exp : public Node {
 	public:
 	string type;
 	Register reg;		//temp reg to hold the Exp
-	BackPatchLists bp;					
+	BackPatchLists bp;			
+	string arrayID; //for array name		
 
 	Exp();
 	Exp(String* s,bool isAPrintFunc,bool isAPrintiFunc);
@@ -207,10 +209,10 @@ class Statement : public Node {
 	Statement(Id* id, Exp* exp);
 	Statement(Id* id, Exp* exp1,Exp* exp2);		
 	Statement(Exp* exp, Statement* statement);
-	Statement(Exp* exp, Statement* statement1, Statement* statement2);	//for if + else func
+	Statement(Exp* exp, Statement* statement1, Statement* statement2, Statement* statement3);	//for if + else func
 	//new cons:
 	Statement(Return* ret);
-  	Statement(Return* ret,Exp* expression,stack<int>& OffsetStack);
+  	Statement(Return* ret,Exp* expression);
 };
 
 class Statements : public Node {
