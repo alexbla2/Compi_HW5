@@ -27,6 +27,7 @@ void RegistersInit(stack<Register>& registerStack){
 }
 
 void saveUsedRegs(stack<Register> unUsedRegs){
+	CodeBuffer::instance().emit("**********SAVING REGS IN ******"); //--------------------------------------------------
 	bool used[HIGH_REG] ;
 	for(int i=LOW_REG;i<HIGH_REG;i++){	//marks all as used for start
 		used[i] = true;
@@ -46,10 +47,12 @@ void saveUsedRegs(stack<Register> unUsedRegs){
 	CodeBuffer::instance().emit("sw $fp,0($sp)");	//save the FramePointer
 	CodeBuffer::instance().emit("subu $sp,$sp,4");
 	CodeBuffer::instance().emit("sw $ra,0($sp)"); //save the return address in stack
+	CodeBuffer::instance().emit("**********SAVING REGS OUT ******"); //--------------------------------------------------
 }
 
 //the opposite of saveUsedRegs
 void restoreUsedRegs(stack<Register> unUsedRegs){
+	CodeBuffer::instance().emit("**********RESTORING REGS IN ******"); //--------------------------------------------------
 	CodeBuffer::instance().emit("lw $ra,0($sp)"); //restore the return address
 	CodeBuffer::instance().emit("addu $sp,$sp,4");
 	CodeBuffer::instance().emit("lw $fp,0($sp)");	//restore the return FramePointer
@@ -60,15 +63,18 @@ void restoreUsedRegs(stack<Register> unUsedRegs){
 	}
 	while(!unUsedRegs.empty()){	
 		Register reg = unUsedRegs.top();
+		//std::cout << "reg num is " << reg.regNum << std::endl;
 		used[reg.regNum] = false; //mark as unused
 		unUsedRegs.pop();
 	}
-	for(int i=HIGH_REG-1; i>=LOW_REG; i++){ //loading from the opposite direction now
+	for(int i=HIGH_REG-1; i>=LOW_REG; i--){ //loading from the opposite direction now
 		if(used[i]){
 			CodeBuffer::instance().emit("lw $" + toString(i) + ",0($sp)"); //restore reg from stack
 			CodeBuffer::instance().emit("addu $sp,$sp,4");
 		}
 	}
+		CodeBuffer::instance().emit("**********RESTORING REGS OUT ******"); //--------------------------------------------------
+
 }
 
 void StacksInit(stack<SymbolTable>& StackTable, stack<int>& OffsetStack) {
@@ -486,7 +492,7 @@ void checkByteToLarge(int numVal){
 	}
 }
 
-int getLocalOffsetById(int local){
+int getLocalOffset(int local){
 	stack<int> tempStack = OffsetStack;
 	if(local < 0){
 		return local; //func argument
@@ -518,7 +524,7 @@ Statement::Statement(Id* id, Exp* exp) {
 			exit(0);
 		}
 	}
-	int offset = getLocalOffsetById(sym.offset);//----------------------------------
+	int offset = getLocalOffset(sym.offset);//----------------------------------
 	//storing result in a temp register:
 
 	if(idType == "BOOL"){
@@ -570,7 +576,7 @@ Statement::Statement(Id* id, Exp* exp1,Exp* exp2){
 	CodeBuffer::instance().emit("bge " + exp1->reg.regName + "," + temp +",indexException");
 	CodeBuffer::instance().emit("blt " + exp1->reg.regName + ",0,indexException");
 
-	int arrayOffset = getLocalOffsetById(arraySym.offset);
+	int arrayOffset = getLocalOffset(arraySym.offset);
 	CodeBuffer::instance().emit("addu " + exp1->reg.regName + "," + exp1->reg.regName + ","
 								+ toString(arrayOffset));	//num of words from fp
 	CodeBuffer::instance().emit("mul " + exp1->reg.regName + "," + exp1->reg.regName + ","
@@ -747,10 +753,10 @@ Call::Call(Id* id, ExpList* expList) {
 		if(expList->ids[j] == ""){ //not an array
 			CodeBuffer::instance().emit("subu $sp,$sp,4");
 			CodeBuffer::instance().emit("sw " + (*i).regName + ",0($sp)"); //push registers to the stack.
-			regs.push((*i)); //mark reg as unUsed!//-------------------------------------------------------------------TODO
+			registerStack.push((*i)); //mark reg as unUsed!//-------------------------------------------------------------------TODO
 		}else{ //is an array
 			Symbol sym = getSymbolById(TableStack, expList->ids[j]);
-			int offset = getLocalOffsetById(sym.offset);
+			int offset = getLocalOffset(sym.offset);
 			int size = getArraySize(sym.type);
 			for(int k=0;k<size; k++){
 				CodeBuffer::instance().emit("move " + (*i).regName + "," + toString(-offset*4)+ "($fp)");
@@ -758,7 +764,7 @@ Call::Call(Id* id, ExpList* expList) {
 				CodeBuffer::instance().emit("sw " + (*i).regName + ",0($sp)"); //push registers to the stack.
 				offset++;
 			}
-			regs.push((*i)); //mark reg as unUsed!//--------------------------------------------------TODO
+			registerStack.push((*i)); //mark reg as unUsed!//--------------------------------------------------TODO
 		}
 		j--;
 	}
@@ -850,11 +856,7 @@ Exp::Exp(Id* id) {
 	this->reg = registerStack.top();
 	registerStack.pop();
 	
-	int currOffset = getSymbolById(TableStack, id->name).offset;
-	SymbolTable currScope = TableStack.top();
-	int firstOffset = currScope[0].offset;
-	int localOffset = currOffset - firstOffset ;
-	
+	int localOffset = getLocalOffset(getSymbolById(TableStack,id->name).offset);
 	CodeBuffer::instance().emit("lw " + this->reg.regName + "," + toString((-localOffset)*4)+"($fp)");// loading id	
 
 }
