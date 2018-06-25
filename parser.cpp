@@ -508,7 +508,7 @@ void checkByteToLarge(int numVal){
 // 	return (local - prevOff);
 // }
 
-//assign to var a=5;
+//assign to var a=5; / a=b;
 Statement::Statement(Id* id, Exp* exp) {
 
 	if (!checkSymDec(TableStack, id)) {			
@@ -891,7 +891,9 @@ Exp::Exp(Id* id) {
 		// nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
 		// string next = CodeBuffer::instance().genLabel();
 		// CodeBuffer::instance().bpatch(nexts,next);
+		registerStack.push(this->reg);		//relase reg for bool exp  ------------------------Level 3 added here
   	}
+	//else keep the reg
 
 }
 
