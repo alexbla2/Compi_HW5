@@ -1,6 +1,6 @@
 {
     "files.associations": {
-        "*.lex": "sml",
+        "*.lex": "lex",
         "string": "cpp",
         "xstring": "cpp",
         "cmath": "cpp",

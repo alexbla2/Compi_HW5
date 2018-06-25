@@ -231,7 +231,7 @@ Statement: RETURN Exp SC {
 //if statement
 Statement: IF LPAREN checkExpType MARKER_M_IF AddNewScope Statement ExitScope {
     ((Statement*)$6)->bp.quad = ((Statement*)$4)->bp.quad;
-    $$ = new Statement( (Exp*)$3, (Statement*)$6);}
+    $$ = new Statement( (Exp*)$3, (Statement*)$6,false);}
 ;
 
 //exits the current scope
@@ -240,11 +240,13 @@ ExitScope: {
 ;
 
 MARKER_M_IF : {
+    CodeBuffer::instance().emit("# M MARKER\n");
     $$ = new Statement(); //empty statement for quad
     ((Statement*)$$)->bp.quad = CodeBuffer::instance().genLabel();
 }
 
 MARKER_N_IF : {
+    CodeBuffer::instance().emit("# N MARKER\n");
     $$ = new Statement(); //empty statement for quad
     ((Statement*)$$)->bp.quad = CodeBuffer::instance().genLabel();
     ((Statement*)$$)->bp.nextList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
@@ -264,7 +266,7 @@ Statement: IF LPAREN checkExpType MARKER_M_IF AddNewScope Statement ExitScope EL
 Statement: WHILE AddWhileScope LPAREN MARKER_M_WHILE checkExpType AddNewScope MARKER_N_WHILE Statement {
     ((Exp*)$5)->bp.quad=((Exp*)$4)->bp.quad;
     ((Statement*)$8)->bp.quad=((Statement*)$7)->bp.quad;
-    $$ = new Statement( (Exp*)$5, (Statement*)$8);
+    $$ = new Statement( (Exp*)$5, (Statement*)$8,true);
     finishScope(TableStack,OffsetStack);
     whileScopes--; }
 ;

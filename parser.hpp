@@ -35,6 +35,17 @@ class Register {
 	Register() : regName("$0"), regNum(0) {}
 	Register(string name, int num) : regName(name) , regNum(num) {}
 
+	Register(const Register& reg){
+    this->regName = reg.regName;
+    this->regNum = reg.regNum;
+  }
+
+	Register& operator=(const Register& reg){
+    this->regName = reg.regName;
+    this->regNum = reg.regNum;
+    return *this;
+  }
+
 };
 
 class BackPatchLists{
@@ -207,7 +218,6 @@ class Statement : public Node {
 	
 	Statement(){}
 	Statement(Call* call);
-	Statement(Exp* exp);
 	Statement(Statements* statements);
 	Statement(Type* t, Id* id);
 	Statement(Type* t, Id* id, Exp* exp);
@@ -215,7 +225,7 @@ class Statement : public Node {
 	Statement(Type* t, Id* id, Num* num, b* byte); 
 	Statement(Id* id, Exp* exp);
 	Statement(Id* id, Exp* exp1,Exp* exp2);		
-	Statement(Exp* exp, Statement* statement);
+	Statement(Exp* exp, Statement* statement,bool isWhile);
 	Statement(Exp* exp, Statement* statement1, Statement* statement2, Statement* statement3);	//for if + else func
 	//new cons:
 	Statement(Return* ret);
