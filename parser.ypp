@@ -240,13 +240,11 @@ ExitScope: {
 ;
 
 MARKER_M_IF : {
-    CodeBuffer::instance().emit("# M MARKER\n");
     $$ = new Statement(); //empty statement for quad
     ((Statement*)$$)->bp.quad = CodeBuffer::instance().genLabel();
 }
 
 MARKER_N_IF : {
-    CodeBuffer::instance().emit("# N MARKER\n");
     $$ = new Statement(); //empty statement for quad
     ((Statement*)$$)->bp.quad = CodeBuffer::instance().genLabel();
     ((Statement*)$$)->bp.nextList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));

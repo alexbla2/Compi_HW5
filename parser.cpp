@@ -27,7 +27,7 @@ void RegistersInit(stack<Register>& registerStack){
 }
 
 void saveUsedRegs(stack<Register> unUsedRegs){
-	CodeBuffer::instance().emit("#**********SAVING REGS IN ******"); //--------------------------------------------------
+	//CodeBuffer::instance().emit("#**********SAVING REGS IN ******"); //--------------------------------------------------
 	bool used[HIGH_REG] ;
 	for(int i=LOW_REG;i<HIGH_REG;i++){	//marks all as used for start
 		used[i] = true;
@@ -47,12 +47,12 @@ void saveUsedRegs(stack<Register> unUsedRegs){
 	CodeBuffer::instance().emit("sw $fp,0($sp)");	//save the FramePointer
 	CodeBuffer::instance().emit("subu $sp,$sp,4");
 	CodeBuffer::instance().emit("sw $ra,0($sp)"); //save the return address in stack
-	CodeBuffer::instance().emit("#**********SAVING REGS OUT ******"); //--------------------------------------------------
+	//CodeBuffer::instance().emit("#**********SAVING REGS OUT ******"); //--------------------------------------------------
 }
 
 //the opposite of saveUsedRegs
 void restoreUsedRegs(stack<Register> unUsedRegs){
-	CodeBuffer::instance().emit("#**********RESTORING REGS IN ******"); //--------------------------------------------------
+	//CodeBuffer::instance().emit("#**********RESTORING REGS IN ******"); //--------------------------------------------------
 	CodeBuffer::instance().emit("lw $ra,0($sp)"); //restore the return address
 	CodeBuffer::instance().emit("addu $sp,$sp,4");
 	CodeBuffer::instance().emit("lw $fp,0($sp)");	//restore the return FramePointer
@@ -73,7 +73,7 @@ void restoreUsedRegs(stack<Register> unUsedRegs){
 			CodeBuffer::instance().emit("addu $sp,$sp,4");
 		}
 	}
-		CodeBuffer::instance().emit("#**********RESTORING REGS OUT ******"); //--------------------------------------------------
+		//CodeBuffer::instance().emit("#**********RESTORING REGS OUT ******"); //--------------------------------------------------
 
 }
 
@@ -153,7 +153,7 @@ void scopePrint(SymbolTable& scope){
 }
 
 void finishScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack){
-	scopePrint(TableStack.top());
+	//scopePrint(TableStack.top());
     OffsetStack.pop();
     TableStack.pop();
 }
@@ -285,15 +285,18 @@ bool checkMatchingTypes(vector<string>& types1,vector<string>& types2){
 }
 
 void checkMain(){
-	CodeBuffer::instance().printDataBuffer();  //prints data Buffer
-	//cout<<".globl main"<<endl; // marks where the main starts..
-	CodeBuffer::instance().printCodeBuffer(); //prints code Buffer
 
 	Symbol mainSym = getSymbolById(TableStack,"main");
 	if(mainSym.ret !="VOID" ||mainSym.name!="main" || !(mainSym.args.empty())){
 		errorMainMissing();
 		exit(0);
 	}
+	
+	CodeBuffer::instance().printDataBuffer();  //prints data Buffer
+	//cout<<".globl main"<<endl; // marks where the main starts..
+	CodeBuffer::instance().printCodeBuffer(); //prints code Buffer
+
+	
 }
 
 Funcs::Funcs() : funcsList( vector<Func*>() ){}  // for epsilon rule
@@ -817,7 +820,7 @@ Exp::Exp(Id* id,Exp* exp){		//a 5 represents a[5] (for example)
 	string temp = t.substr(pos1+1,pos2-pos1-1);
 	//SymbolTable currScope = TableStack.top();
 	//int firstOffset = currScope[0].offset;
-	std::cout << "#POINT 8 \n" << std::endl;
+	//std::cout << "#POINT 8 \n" << std::endl;
 	int localOffset = currOffset; // - firstOffset ;// findActualOffset();
 	this->arrayID="";
 	
@@ -862,12 +865,12 @@ Exp::Exp(Id* id) {
 	}else{
 		this->arrayID = "";
 	}
-	if(registerStack.empty())	std::cout << "STACK EMPTY!!! "  << std::endl; ///////////////////////-----------------------------------------------
+	//if(registerStack.empty())	std::cout << "STACK EMPTY!!! "  << std::endl; ///////////////////////-----------------------------------------------
 	this->reg = registerStack.top();
 	registerStack.pop();
 	
 	int localOffset =getSymbolById(TableStack,id->name).offset; //getLocalOffset(getSymbolById(TableStack,id->name).offset);
-	CodeBuffer::instance().emit("##############OFFSET IS" + toString(localOffset));
+	//CodeBuffer::instance().emit("##############OFFSET IS" + toString(localOffset));
 	this->bp.quad = CodeBuffer::instance().emit("lw " + this->reg.regName + "," + toString((-localOffset)*4)+"($fp)");// loading id	
 	if(this-> type =="BOOL" ){
 		this->bp.trueList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("beq "+ this->reg.regName +",1,"));
