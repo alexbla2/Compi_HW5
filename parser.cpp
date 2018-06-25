@@ -291,7 +291,7 @@ void checkMain(){
 		errorMainMissing();
 		exit(0);
 	}
-	
+
 	CodeBuffer::instance().printDataBuffer();  //prints data Buffer
 	//cout<<".globl main"<<endl; // marks where the main starts..
 	CodeBuffer::instance().printCodeBuffer(); //prints code Buffer
@@ -606,7 +606,7 @@ Statement::Statement(Exp* exp, Statement* statement,bool isWhile) {
 	CodeBuffer::instance().bpatch(this->bp.falseList,CodeBuffer::instance().genLabel()); 
 }
 
-// int a=5;
+// int a=exp;
 Statement::Statement(Type* type, Id* id, Exp* exp) {
 	
 	if (checkSymDec(TableStack, id)) {
@@ -851,7 +851,15 @@ Exp::Exp(String* exp,bool isAprintFunc,bool isAprintiFunc) { //help please
 
 Exp::Exp(Num* exp) : type("INT"), reg(exp->reg) , arrayID(""){} //exp uses the same reg as num
 
-Exp::Exp(Exp* exp) : type(exp->type), reg(exp->reg) , arrayID("") {} //exp uses the same reg as exp
+// exp = (exp)
+Exp::Exp(Exp* exp) : type(exp->type), reg(exp->reg) , arrayID("") {
+	this->bp.trueList=exp->bp.trueList;
+  	this->bp.falseList=exp->bp.falseList;
+	this->bp.breakList=exp->bp.breakList;
+	this->bp.nextList=exp->bp.nextList;
+	this->bp.quad=exp->bp.quad;
+
+} //exp uses the same reg as exp
 
 Exp::Exp(Id* id) {
   
@@ -934,21 +942,21 @@ Exp::Exp(string operand, Exp* exp) {		//not
 		this->bp.trueList=exp->bp.falseList;
   		this->bp.falseList=exp->bp.trueList;
 	}
+
 	
 }
 
 Exp::Exp(Exp* exp1, Exp* exp2, string opType,string opVal) { // TODO: check for bool back patching
 	
-	if(opType == "LOGOP"){ //AND \ OR
+		if(opType == "LOGOP"){ //AND \ OR
 		if ((exp1->type != "BOOL") || (exp2->type != "BOOL")) {
 			errorMismatch(yylineno);
 			exit(0);
 		}
-		
 		this->type = "BOOL";
 		if(opVal == "AND"){
 			CodeBuffer::instance().bpatch(exp1->bp.trueList,exp2->bp.quad);
-			this->bp.trueList=exp2->bp.trueList;
+			this->bp.trueList=exp2->bp.trueList;	
 			this->bp.falseList=CodeBuffer::instance().merge(exp1->bp.falseList,exp2->bp.falseList);
 		}else if(opVal == "OR"){ 	//OR	
 			CodeBuffer::instance().bpatch(exp1->bp.falseList,exp2->bp.quad);
