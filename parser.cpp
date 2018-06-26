@@ -518,7 +518,7 @@ void checkByteToLarge(int numVal){
 // 	return (local - prevOff);
 // }
 
-//assign to var a=5; / a=b;
+//assign to var a=5; / a=b; ****************and also id[exp]!!!!!!!!!!!!!!!!!!!!!!
 Statement::Statement(Id* id, Exp* exp) {
 
 	if (!checkSymDec(TableStack, id)) {			
@@ -585,6 +585,9 @@ Statement::Statement(Id* id, Exp* exp1,Exp* exp2){
 			exit(0);
 		}
 	}
+
+
+
 	Symbol arraySym = getSymbolById(TableStack,id->name);
 	
 	int pos2=idType.find("]");
@@ -833,9 +836,11 @@ Exp::Exp(Id* id,Exp* exp){		//a 5 represents a[5] (for example)
 	//std::cout << "#POINT 8 \n" << std::endl;
 	int localOffset = currOffset; // - firstOffset ;// findActualOffset();
 	this->arrayID="";
+
 	
 	CodeBuffer::instance().emit("bge " + exp->reg.regName + "," + temp +",indexException");
 	CodeBuffer::instance().emit("blt " + exp->reg.regName + ",0,indexException");
+	
 	CodeBuffer::instance().emit("addu " + this->reg.regName + "," + this->reg.regName + ","
 								+ toString(localOffset));	//num of words from fp
 	CodeBuffer::instance().emit("mul " + this->reg.regName + "," + this->reg.regName + ","
@@ -844,6 +849,11 @@ Exp::Exp(Id* id,Exp* exp){		//a 5 represents a[5] (for example)
 								this->reg.regName + "," + "$fp"); //absolute address
 	CodeBuffer::instance().emit("lw " + this->reg.regName + "," + 
 								"(" + this->reg.regName + ")"); // loading id[exp]
+	
+	if(this->type == "BOOL"){
+		this->bp.trueList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("beq "+ this->reg.regName +",1,"));
+		this->bp.falseList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+  	}
 }
 
 
@@ -891,16 +901,12 @@ Exp::Exp(Id* id) {
 	//CodeBuffer::instance().emit("##############OFFSET IS" + toString(localOffset));
 	this->bp.quad = CodeBuffer::instance().emit("lw " + this->reg.regName + "," + toString((-localOffset)*4)+"($fp)");// loading id	
 	if(this-> type =="BOOL" ){
-		this->bp.trueList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("beq "+ this->reg.regName +",1,"));
+		vector<int> list = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("beq "+this->reg.regName+",1,"));
+		string falseLabel = CodeBuffer::instance().genLabel();
 		this->bp.falseList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
-		// string trueLabel = CodeBuffer::instance().genLabel();
-		// CodeBuffer::instance().emit("li "+ this->reg.regName+",1");
-		// vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
-		// string falseLabel = CodeBuffer::instance().genLabel();
-		// CodeBuffer::instance().emit("li "+this->reg.regName+",0");
-		// nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
-		// string next = CodeBuffer::instance().genLabel();
-		// CodeBuffer::instance().bpatch(nexts,next);
+		string trueLabel = CodeBuffer::instance().genLabel();
+		this->bp.trueList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+		CodeBuffer::instance().bpatch(list,trueLabel);
 		registerStack.push(this->reg);		//relase reg for bool exp  ------------------------Level 3 added here
   	}
 	//else keep the reg
