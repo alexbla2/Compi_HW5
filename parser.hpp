@@ -308,7 +308,7 @@ void StacksInit(stack<SymbolTable>& StackTable, stack<int>& OffsetStack) ;
 void RegistersInit(stack<Register>& registerStack);
 void addNewScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack) ;
 void scopePrint(SymbolTable& scope);
-void finishScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack);
+void finishScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack,bool progEnd);
 void addFuncSymScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack,Formals* formals, int lineno); 				   
 void newVarScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack,string type, Id* id, int lineno,int currentOff) ;
 void addFuncToScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack,RetType* ret, Id* id, Formals* formals, int lineno);

@@ -73,7 +73,7 @@ using namespace output;
 
 Program: Funcs {
     checkMain();
-    finishScope(TableStack,OffsetStack);
+    finishScope(TableStack,OffsetStack,true);
 };
 
 Funcs:  /*epsilon*/ {
@@ -91,7 +91,7 @@ FuncDecl: RetType UpdateCurrentFunName LPAREN Formals AddFuncScope RPAREN OpenFu
     derivesNum--;
     Func* func = new Func((RetType*)$1, (Id*)$2, (Formals*)$4, (Statements*)$9);
     $$ = func;
-    finishScope(TableStack,OffsetStack);}
+    finishScope(TableStack,OffsetStack,false);}
 ;
 
 RetType: VOID {
@@ -150,7 +150,7 @@ Statements: Statement { $$ = new Statements( (Statement*)$1); }
 
 Statement: LBRACE AddNewScope Statements RBRACE {
     $$ = new Statement( (Statements*)$3);
-    finishScope(TableStack,OffsetStack);}
+    finishScope(TableStack,OffsetStack,false);}
 ;
 
 AddNewScope: {
@@ -236,7 +236,7 @@ Statement: IF LPAREN checkExpType MARKER_M_IF AddNewScope Statement ExitScope {
 
 //exits the current scope
 ExitScope: {
-    finishScope(TableStack,OffsetStack);}
+    finishScope(TableStack,OffsetStack,false);}
 ;
 
 MARKER_M_IF : {
@@ -256,7 +256,7 @@ Statement: IF LPAREN checkExpType MARKER_M_IF AddNewScope Statement ExitScope EL
     ((Statement*)$6)->bp.quad = ((Statement*)$4)->bp.quad;
     ((Statement*)$12)->bp.quad = ((Statement*)$10)->bp.quad;
     $$ = new Statement( (Exp*)$3, (Statement*)$6,(Statement*)$9, (Statement*)$12);
-    finishScope(TableStack,OffsetStack);
+    finishScope(TableStack,OffsetStack,false);
     delete $9; //delete N MARKER
 };
 
@@ -265,7 +265,7 @@ Statement: WHILE AddWhileScope LPAREN MARKER_M_WHILE checkExpType AddNewScope MA
     ((Exp*)$5)->bp.quad=((Exp*)$4)->bp.quad;
     ((Statement*)$8)->bp.quad=((Statement*)$7)->bp.quad;
     $$ = new Statement( (Exp*)$5, (Statement*)$8,true);
-    finishScope(TableStack,OffsetStack);
+    finishScope(TableStack,OffsetStack,false);
     whileScopes--; }
 ;
 
