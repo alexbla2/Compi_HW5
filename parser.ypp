@@ -26,6 +26,7 @@ bool isAprintFunc;           //special case for the print function
 bool isAprintiFunc;           //special case for the printi function*
 int whileScopes;             //current number of while scopes 
 int derivesNum;
+//bool isArgument;
 
 using namespace output;
 
@@ -205,7 +206,7 @@ Statement: Call SC {
 //simple return - only in void functions!
 Statement: RETURN SC {
     if(expectedRet->type == "VOID"){ //is a void func
-        $$ = new Statement();
+        $$ = new Statement((Return*)$1);
     }else{
         errorMismatch(yylineno);
         exit(0);
@@ -255,8 +256,8 @@ MARKER_N_IF : {
 Statement: IF LPAREN checkExpType MARKER_M_IF AddNewScope Statement ExitScope ELSE MARKER_N_IF MARKER_M_IF AddNewScope Statement {
     ((Statement*)$6)->bp.quad = ((Statement*)$4)->bp.quad;
     ((Statement*)$12)->bp.quad = ((Statement*)$10)->bp.quad;
-    $$ = new Statement( (Exp*)$3, (Statement*)$6,(Statement*)$9, (Statement*)$12);
     finishScope(TableStack,OffsetStack,false);
+    $$ = new Statement( (Exp*)$3, (Statement*)$6,(Statement*)$9, (Statement*)$12);
     delete $9; //delete N MARKER
 };
 
@@ -264,8 +265,8 @@ Statement: IF LPAREN checkExpType MARKER_M_IF AddNewScope Statement ExitScope EL
 Statement: WHILE AddWhileScope LPAREN MARKER_M_WHILE checkExpType AddNewScope MARKER_N_WHILE Statement {
     ((Exp*)$5)->bp.quad=((Exp*)$4)->bp.quad;
     ((Statement*)$8)->bp.quad=((Statement*)$7)->bp.quad;
-    $$ = new Statement( (Exp*)$5, (Statement*)$8,true);
     finishScope(TableStack,OffsetStack,false);
+    $$ = new Statement( (Exp*)$5, (Statement*)$8,true);
     whileScopes--; }
 ;
 
@@ -320,6 +321,7 @@ FuncName: ID {
     }else if(((Id*)$1)->name == "printi"){  
         isAprintiFunc = true;                
     }
+    //isArgumentisArgument = true;
     $$ = $1;
 };
 
@@ -328,10 +330,12 @@ Call: FuncName LPAREN ExpList RPAREN {
     $$ = new Call( (Id*)$1, (ExpList*)$3);
     isAprintFunc = false; 
     isAprintiFunc = false;  //back to default status
+    //isArgument = false;
 };
 
 //calls function without parameters
 Call: FuncName LPAREN RPAREN {
+    //isArgument = false;
     $$ = new Call( (Id*)$1);}
 ;
 
@@ -363,19 +367,19 @@ ExpList: MARKER_EXP COMMA ExpList {
 };
 
 MARKER_EXP: Exp {
-    if(((Exp*)$1)->type == "BOOL"){
-		((Exp*)$1)->reg = registerStack.top();
-		registerStack.pop();
-		string trueLabel = CodeBuffer::instance().genLabel();
-		CodeBuffer::instance().emit("li "+ ((Exp*)$1)->reg.regName+",1");
-		vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
-		string falseLabel = CodeBuffer::instance().genLabel();
-		CodeBuffer::instance().emit("li "+((Exp*)$1)->reg.regName+",0");
-		nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
-		string next = CodeBuffer::instance().genLabel();
-		CodeBuffer::instance().bpatch(nexts,next);
-		CodeBuffer::instance().bpatch(((Exp*)$1)->bp.trueList,trueLabel);
-		CodeBuffer::instance().bpatch(((Exp*)$1)->bp.falseList,falseLabel);
+    if(((Exp*)$1)->type == "BOOL" ){
+        ((Exp*)$1)->reg = registerStack.top();
+        registerStack.pop();
+        string trueLabel = CodeBuffer::instance().genLabel();
+        CodeBuffer::instance().emit("li "+ ((Exp*)$1)->reg.regName+",1");
+        vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+        string falseLabel = CodeBuffer::instance().genLabel();
+        CodeBuffer::instance().emit("li "+((Exp*)$1)->reg.regName+",0");
+        nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
+        string next = CodeBuffer::instance().genLabel();
+        CodeBuffer::instance().bpatch(nexts,next);
+        CodeBuffer::instance().bpatch(((Exp*)$1)->bp.trueList,trueLabel);
+        CodeBuffer::instance().bpatch(((Exp*)$1)->bp.falseList,falseLabel);
     }
     $$ = $1;
 }
@@ -433,6 +437,7 @@ int main(){
     derivesNum=0;
     isAprintFunc=false;
     isAprintiFunc = false;
+    //isArgumentisArgument = false;
     StacksInit(TableStack, OffsetStack);
     RegistersInit(registerStack);    //------new func added for registers init.
     return yyparse();

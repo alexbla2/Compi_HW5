@@ -21,6 +21,7 @@ extern stack<SymbolTable> TableStack;
 extern stack<int> OffsetStack;
 class Register;
 extern stack<Register> registerStack; //a stack for saving all the *Unused* Available registers
+//extern bool isArgument;
 
 
 extern int yylineno;		//extern var from lexer - keeps the current line number
@@ -195,7 +196,8 @@ class Exp : public Node {
 	string type;
 	Register reg;		//temp reg to hold the Exp
 	BackPatchLists bp;			
-	string arrayID; //for array name		
+	string arrayID; //for array name
+	//bool needEval;		
 
 	Exp();
 	Exp(String* s,bool isAPrintFunc,bool isAPrintiFunc);

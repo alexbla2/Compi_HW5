@@ -7,6 +7,7 @@ using namespace output;
 #define HIGH_REG 26
 
 
+
 string toString ( int num ){
    std::ostringstream ss;
    ss << num;
@@ -396,9 +397,11 @@ Statement::Statement(Return* ret){
 	tempStack.pop();
 	int prevOff = tempStack.top();
 	int localOffset = currentOff - prevOff;
+	//CodeBuffer::instance().emit("##1###"); //saving space for func args in stack
 	if(localOffset > 0){
 		CodeBuffer::instance().emit("addu $sp,$sp," + toString(localOffset*4)); //saving space for func args in stack
 	}
+	//CodeBuffer::instance().emit("##2###"); //saving space for func args in stack
 	CodeBuffer::instance().emit("jr $ra"); ///-----------------------------TODO
 }
 
@@ -697,19 +700,20 @@ ExpList::ExpList(Exp* exp) {
   	this->types.push_back(exp->type);
 	this->ids.push_back(exp->arrayID);
 
-	if(exp->type=="BOOL"){
-		exp->reg = registerStack.top();
-		registerStack.pop();
-		string trueLabel = CodeBuffer::instance().genLabel();
-		CodeBuffer::instance().emit("li "+ exp->reg.regName +",1");
-		vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
-		string falseLabel = CodeBuffer::instance().genLabel();
-		CodeBuffer::instance().emit("li "+ exp->reg.regName +",0");
-		nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
-		string next = CodeBuffer::instance().genLabel();
-		CodeBuffer::instance().bpatch(nexts,next);
-		CodeBuffer::instance().bpatch(exp->bp.trueList,trueLabel);
-		CodeBuffer::instance().bpatch(exp->bp.falseList,falseLabel);
+	
+	if(exp->type=="BOOL" ){
+			exp->reg = registerStack.top();
+			registerStack.pop();
+			string trueLabel = CodeBuffer::instance().genLabel();
+			CodeBuffer::instance().emit("li "+ exp->reg.regName +",1");
+			vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+			string falseLabel = CodeBuffer::instance().genLabel();
+			CodeBuffer::instance().emit("li "+ exp->reg.regName +",0");
+			nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
+			string next = CodeBuffer::instance().genLabel();
+			CodeBuffer::instance().bpatch(nexts,next);
+			CodeBuffer::instance().bpatch(exp->bp.trueList,trueLabel);
+			CodeBuffer::instance().bpatch(exp->bp.falseList,falseLabel);
   	}
 	this->registers = vector<Register>();
  	this->registers.push_back(exp->reg);
@@ -725,7 +729,6 @@ ExpList::ExpList(Exp* exp, ExpList* expList){
 		this->types.push_back(expList->types[i]);
 		this->ids.push_back(expList->ids[i]);
 	}
-	
 	// if(exp->type=="BOOL"){
 	// 	exp->reg = registerStack.top();
 	// 	registerStack.pop();
@@ -853,6 +856,7 @@ Exp::Exp(Id* id,Exp* exp){
 	}
 	this->type = t.substr(0,pos1);
 	this->reg = exp->reg;
+	//this->needEval = false;
 	
 	
 	int pos2=t.find("]");
@@ -877,7 +881,9 @@ Exp::Exp(Id* id,Exp* exp){
 	if(this-> type =="BOOL" ){
 		this->bp.trueList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("beq "+ this->reg.regName +",1,"));
 		this->bp.falseList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
-		registerStack.push(exp->reg);
+		//if(isArgument == false){
+			registerStack.push(exp->reg);
+		//}
 	}
 }
 
@@ -891,10 +897,11 @@ Exp::Exp(String* exp,bool isAprintFunc,bool isAprintiFunc) { //help please
 	this->type = "STRING";
 	this->arrayID="";
 	this->reg = exp->reg;
+	//this->needEval = false;
 }
 
 
-Exp::Exp(Num* exp) : type("INT"), reg(exp->reg) , arrayID(""){} //exp uses the same reg as num
+Exp::Exp(Num* exp) : type("INT"), reg(exp->reg) , arrayID("") {} //exp uses the same reg as num
 
 // exp = (exp)
 Exp::Exp(Exp* exp) : type(exp->type), reg(exp->reg) , arrayID("") {
@@ -903,6 +910,7 @@ Exp::Exp(Exp* exp) : type(exp->type), reg(exp->reg) , arrayID("") {
 	this->bp.breakList=exp->bp.breakList;
 	this->bp.nextList=exp->bp.nextList;
 	this->bp.quad=exp->bp.quad;
+	//this->needEval = exp->needEval;
 
 } //exp uses the same reg as exp
 
@@ -918,6 +926,7 @@ Exp::Exp(Id* id) {
 	}else{
 		this->arrayID = "";
 	}
+	//this->needEval = false;
 	//if(registerStack.empty())	std::cout << "STACK EMPTY!!! "  << std::endl; ///////////////////////-----------------------------------------------
 	this->reg = registerStack.top();
 	registerStack.pop();
@@ -936,7 +945,9 @@ Exp::Exp(Id* id) {
 		// nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
 		// string next = CodeBuffer::instance().genLabel();
 		// CodeBuffer::instance().bpatch(nexts,next);
-		registerStack.push(this->reg);		//relase reg for bool exp  ------------------------Level 3 added here
+		//if(isArgument == false){
+			registerStack.push(this->reg);		//relase reg for bool exp  ------------------------Level 3 added here
+		//}
   	}
 	//else keep the reg
 
@@ -946,8 +957,15 @@ Exp::Exp(Call* call) { //TODO: X=CALL F() -> SHOULD EXP.REG GET RETURN VALUE?
 	this->arrayID="";
 	this->type = getSymbolById(TableStack, call->id).ret;
 	this->reg = registerStack.top();
+	//this->needEval = false;
 	registerStack.pop();
 	CodeBuffer::instance().emit("move " + reg.regName + ",$v0");
+	if(this->type == "BOOL"){
+		this->bp.trueList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("beq "+ this->reg.regName +",1,"));
+		this->bp.falseList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+		//if(isArgument == false){
+		registerStack.push(this->reg);
+	}
 }
 
 Exp::Exp(Num* num, b* byte) {
@@ -964,12 +982,14 @@ Exp::Exp(Num* num, b* byte) {
 	
 	this->reg = num->reg;
 	this->arrayID = "";
+	//this->needEval = false;
 }
 
 //for TRUE or FALSE vals
 Exp::Exp(string flag) {
 	this->type="BOOL";
 	this->arrayID = "";
+	//this->needEval = true;
 	if(flag == "TRUE" ){
 		this->bp.trueList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
 	}else{
@@ -988,6 +1008,7 @@ Exp::Exp(string operand, Exp* exp) {		//not
 		this->type="BOOL";
 		this->bp.trueList=exp->bp.falseList;
   		this->bp.falseList=exp->bp.trueList;
+		//this->needEval = true;
 	}
 
 	
@@ -1001,6 +1022,7 @@ Exp::Exp(Exp* exp1, Exp* exp2, string opType,string opVal) { // TODO: check for 
 			exit(0);
 		}
 		this->type = "BOOL";
+		//this->needEval = true;
 		if(opVal == "AND"){
 			CodeBuffer::instance().bpatch(exp1->bp.trueList,exp2->bp.quad);
 			this->bp.trueList=exp2->bp.trueList;	
@@ -1026,6 +1048,7 @@ Exp::Exp(Exp* exp1, Exp* exp2, string opType,string opVal) { // TODO: check for 
 		}
 		
 		this->reg = exp1->reg; //using exp1 reg
+		//this->needEval = false;
 		string opCmd;
 		string optmp = string(opVal);
 
@@ -1060,6 +1083,7 @@ Exp::Exp(Exp* exp1,Exp* exp2,Relop* op){
 	}
 	
 	this->type = "BOOL";
+	//this->needEval = true;
 	
 	string opCmd;
 	string opVal=op->op;
