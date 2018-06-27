@@ -152,18 +152,8 @@ void scopePrint(SymbolTable& scope){
     	printID(it->name, it->offset, it->type);
 }
 
-void finishScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack,bool progEnd){
+void finishScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack){
 	//scopePrint(TableStack.top());
-	if(progEnd == false){
-		stack<int> tempStack = OffsetStack;
-		int currentOff = tempStack.top();
-		tempStack.pop();
-		int prevOff = tempStack.top();
-		int localOffset = currentOff - prevOff;
-		if(localOffset > 0){
-			CodeBuffer::instance().emit("addu $sp,$sp," + toString(localOffset*4)); //deleting local var in sp on exit
-		}
-	}
     OffsetStack.pop();
     TableStack.pop();
 }
