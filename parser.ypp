@@ -345,7 +345,7 @@ ExpList: Exp {
     $$ = new ExpList( (Exp*)$1); 
 };
 
-ExpList: Exp COMMA ExpList {
+ExpList: MARKER_EXP COMMA ExpList {
     if(isAprintiFunc || isAprintFunc){  //those funcs cannot except more than *one* param
         std::vector<std::string> vec;
         string funcName;
@@ -361,6 +361,24 @@ ExpList: Exp COMMA ExpList {
     }
     $$ = new ExpList( (Exp*)$1, (ExpList*)$3); 
 };
+
+MARKER_EXP: Exp {
+    if(((Exp*)$1)->type == "BOOL"){
+		((Exp*)$1)->reg = registerStack.top();
+		registerStack.pop();
+		string trueLabel = CodeBuffer::instance().genLabel();
+		CodeBuffer::instance().emit("li "+ ((Exp*)$1)->reg.regName+",1");
+		vector<int> nexts = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j "));
+		string falseLabel = CodeBuffer::instance().genLabel();
+		CodeBuffer::instance().emit("li "+((Exp*)$1)->reg.regName+",0");
+		nexts = CodeBuffer::instance().merge(nexts,CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")));
+		string next = CodeBuffer::instance().genLabel();
+		CodeBuffer::instance().bpatch(nexts,next);
+		CodeBuffer::instance().bpatch(((Exp*)$1)->bp.trueList,trueLabel);
+		CodeBuffer::instance().bpatch(((Exp*)$1)->bp.falseList,falseLabel);
+    }
+    $$ = $1;
+}
 
 Type: INT  { $$ = new Type("INT"); }
     | BYTE { $$ = new Type("BYTE"); }
