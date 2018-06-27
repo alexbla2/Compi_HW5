@@ -652,13 +652,17 @@ Statement::Statement(Id* id, Exp* exp1,Exp* exp2){
 Statement::Statement(Exp* exp, Statement* statement,bool isWhile) {
 	CodeBuffer::instance().bpatch(exp->bp.trueList,statement->bp.quad);
 	this->bp.falseList=CodeBuffer::instance().merge(exp->bp.falseList,statement->bp.nextList);
-	//this->bp.breakList= statement->bp.breakList;
+	if(!isWhile){
+		this->bp.breakList= statement->bp.breakList;	
+	}
 	if(isWhile){
 		CodeBuffer::instance().emit("j "+ exp->bp.quad);
+		string label = CodeBuffer::instance().genLabel();
+		CodeBuffer::instance().bpatch(statement->bp.breakList,label); 
 	}
-	string label = CodeBuffer::instance().genLabel();
-	CodeBuffer::instance().bpatch(this->bp.falseList,label); 
-	CodeBuffer::instance().bpatch(statement->bp.breakList,label); 
+	string label2 = CodeBuffer::instance().genLabel();
+	CodeBuffer::instance().bpatch(this->bp.falseList,label2); 
+	
 }
 
 // int a=exp;
@@ -969,6 +973,7 @@ Exp::Exp(Id* id) {
 Exp::Exp(Call* call) { //TODO: X=CALL F() -> SHOULD EXP.REG GET RETURN VALUE?
 	this->arrayID="";
 	this->type = getSymbolById(TableStack, call->id).ret;
+	//std::cout << "## TYPE IS (exp-call)  " << this->type <<std::endl;
 	this->reg = registerStack.top();
 	//this->needEval = false;
 	registerStack.pop();

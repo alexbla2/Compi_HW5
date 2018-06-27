@@ -26,6 +26,7 @@ bool isAprintFunc;           //special case for the print function
 bool isAprintiFunc;           //special case for the printi function*
 int whileScopes;             //current number of while scopes 
 int derivesNum;
+bool printIparam;
 //bool isArgument;
 
 using namespace output;
@@ -39,8 +40,8 @@ using namespace output;
 %token BYTE;
 %token B;
 %token BOOL;
-%left AND;
 %left OR;
+%left AND;
 %right NOT;
 %token TRUE;
 %token FALSE;
@@ -322,7 +323,9 @@ FuncName: ID {
     }else if(((Id*)$1)->name == "printi"){  
         isAprintiFunc = true;                
     }
-    //isArgumentisArgument = true;
+    if(isAprintiFunc){
+        printIparam = true;
+    }
     $$ = $1;
 };
 
@@ -331,19 +334,24 @@ Call: FuncName LPAREN ExpList RPAREN {
     $$ = new Call( (Id*)$1, (ExpList*)$3);
     isAprintFunc = false; 
     isAprintiFunc = false;  //back to default status
-    //isArgument = false;
+    if(printIparam == true){
+        printIparam = false;
+    }
 };
 
 //calls function without parameters
 Call: FuncName LPAREN RPAREN {
-    //isArgument = false;
+    if(printIparam == true){
+        printIparam = false;
+    }
     $$ = new Call( (Id*)$1);}
 ;
 
 ExpList: Exp {
-    if(isAprintiFunc && (((Exp*)$1)->type != "INT" &&  ((Exp*)$1)->type != "BYTE")){
+    if(isAprintiFunc && ((((Exp*)$1)->type != "INT" &&  ((Exp*)$1)->type != "BYTE"))&& printIparam == false){
         std::vector<std::string> vec;
         vec.push_back("INT");
+        //std::cout << "EXP TYPE IS " << ((Exp*)$1)->type  << std::endl;
         errorPrototypeMismatch(yylineno, "printi", vec);
 		exit(0);
     }
@@ -351,9 +359,10 @@ ExpList: Exp {
 };
 
 ExpList: MARKER_EXP COMMA ExpList {
-    if(isAprintiFunc || isAprintFunc){  //those funcs cannot except more than *one* param
+    if((isAprintiFunc && printIparam == false) || isAprintFunc ){  //those funcs cannot except more than *one* param
         std::vector<std::string> vec;
         string funcName;
+        //std::cout << "XXXXXXXXXXXXX " << std::endl;
         if(isAprintiFunc){
             vec.push_back("INT");
             funcName = "printi";
@@ -438,7 +447,7 @@ int main(){
     derivesNum=0;
     isAprintFunc=false;
     isAprintiFunc = false;
-    //isArgumentisArgument = false;
+    printIparam = false;
     StacksInit(TableStack, OffsetStack);
     RegistersInit(registerStack);    //------new func added for registers init.
     return yyparse();
