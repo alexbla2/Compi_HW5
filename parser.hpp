@@ -307,6 +307,7 @@ void checkMain();
 void saveFramePointer();
 void checkByteToLarge(int numVal);
 void StacksInit(stack<SymbolTable>& StackTable, stack<int>& OffsetStack) ;
+void foldLocals(stack<SymbolTable>& StackTable, stack<int>& OffsetStack);
 void RegistersInit(stack<Register>& registerStack);
 void addNewScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack) ;
 void scopePrint(SymbolTable& scope);

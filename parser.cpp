@@ -169,6 +169,19 @@ void finishScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack,bool pr
     TableStack.pop();
 }
 
+void foldLocals(stack<SymbolTable>& StackTable, stack<int>& OffsetStack){
+	
+		stack<int> tempStack = OffsetStack;
+		int currentOff = tempStack.top();
+		tempStack.pop();
+		int prevOff = tempStack.top();
+		int localOffset = currentOff - prevOff;
+		if(localOffset > 0){
+			CodeBuffer::instance().emit("addu $sp,$sp," + toString(localOffset*4)); //deleting local var in sp on exit
+		}
+}
+
+
 int getArraySize(string type){
 	int pos1=type.find("[");
 	int pos2=type.find("]");

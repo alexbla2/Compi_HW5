@@ -309,6 +309,7 @@ Statement: BREAK SC {
         errorUnexpectedBreak(yylineno);
         exit(0);
     }else{
+        foldLocals(TableStack,OffsetStack);
         $$ = new Statement();
     }
     ((Statement*)$$)->bp.breakList = CodeBuffer::instance().makelist(CodeBuffer::instance().emit("j ")); //leave for backPatch
