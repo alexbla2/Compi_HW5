@@ -26,7 +26,7 @@ bool isAprintFunc;           //special case for the print function
 bool isAprintiFunc;           //special case for the printi function*
 int whileScopes;             //current number of while scopes 
 int derivesNum;
-bool printIparam;
+int printIparam;
 //bool isArgument;
 
 using namespace output;
@@ -321,10 +321,10 @@ FuncName: ID {
     if( ((Id*)$1)->name == "print"){   //checks if the func is *print* for special case (- can accept string after it
         isAprintFunc = true;                
     }else if(((Id*)$1)->name == "printi"){  
-        isAprintiFunc = true;                
+        isAprintiFunc = true;              
     }
-    if(isAprintiFunc){
-        printIparam = true;
+    if(isAprintiFunc == true ){
+        printIparam++;
     }
     $$ = $1;
 };
@@ -332,23 +332,29 @@ FuncName: ID {
 //calls function with parameters
 Call: FuncName LPAREN ExpList RPAREN {
     $$ = new Call( (Id*)$1, (ExpList*)$3);
-    isAprintFunc = false; 
-    isAprintiFunc = false;  //back to default status
-    if(printIparam == true){
-        printIparam = false;
+      //back to default status
+    if(isAprintiFunc == true){
+        printIparam--;
     }
+    if(printIparam == 0 && isAprintiFunc == true){
+        isAprintiFunc = false;
+    }
+    isAprintFunc = false; 
 };
 
 //calls function without parameters
 Call: FuncName LPAREN RPAREN {
-    if(printIparam == true){
-        printIparam = false;
+    $$ = new Call( (Id*)$1);
+    if(isAprintiFunc == true){
+        printIparam--;
     }
-    $$ = new Call( (Id*)$1);}
-;
+    if(printIparam == 0 && isAprintiFunc == true){
+        isAprintiFunc = false;
+    }
+};
 
 ExpList: Exp {
-    if(isAprintiFunc && ((((Exp*)$1)->type != "INT" &&  ((Exp*)$1)->type != "BYTE"))&& printIparam == false){
+    if(isAprintiFunc && ((((Exp*)$1)->type != "INT" &&  ((Exp*)$1)->type != "BYTE"))&& printIparam == 1){
         std::vector<std::string> vec;
         vec.push_back("INT");
         //std::cout << "EXP TYPE IS " << ((Exp*)$1)->type  << std::endl;
@@ -447,7 +453,7 @@ int main(){
     derivesNum=0;
     isAprintFunc=false;
     isAprintiFunc = false;
-    printIparam = false;
+    printIparam = 0;
     StacksInit(TableStack, OffsetStack);
     RegistersInit(registerStack);    //------new func added for registers init.
     return yyparse();

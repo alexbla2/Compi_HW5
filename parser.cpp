@@ -96,10 +96,10 @@ void StacksInit(stack<SymbolTable>& StackTable, stack<int>& OffsetStack) {
 	Symbol sym1("print", s1, OffsetStack.top(), PrintTypes, ret1);		//maybe need to send a & ?
 	Symbol sym2("printi", s2, OffsetStack.top(), PrintITypes, ret1);
 	
-	CodeBuffer::instance().emit("print:");
+	CodeBuffer::instance().emit("_print:");
   	CodeBuffer::instance().emit("lw $a0,0($sp)\nli $v0,4\nsyscall\njr $ra");
 	StackTable.top().push_back(sym1);
-	CodeBuffer::instance().emit("printi:");
+	CodeBuffer::instance().emit("_printi:");
     CodeBuffer::instance().emit("lw $a0,0($sp)\nli $v0,1\nsyscall\njr $ra");
 	StackTable.top().push_back(sym2);
 
@@ -247,7 +247,11 @@ void addFuncToScope(stack<SymbolTable>& StackTable, stack<int>& OffsetStack,
 	string funcType=makeFunctionType(ret->type,types);
 	Symbol sym(id->name, funcType, OffsetStack.top(),types, ret->type);
 	StackTable.top().push_back(sym);
-	CodeBuffer::instance().emit(id->name + ":"); //add a new func label
+	if(id->name == "main"){
+		CodeBuffer::instance().emit(id->name + ":"); //add a new main label
+	}else{
+		CodeBuffer::instance().emit("_"+id->name + ":"); //add a new func label
+	}
 }
 
 Symbol getSymbolById(stack<SymbolTable>& StackTable, string id) {
@@ -403,13 +407,13 @@ Statement::Statement(Statements* statements) {
 	this->bp.falseList = statements->bp.falseList;
 	this->bp.breakList = statements->bp.breakList;
 }
-
+//level 7 change
 Statement::Statement(Return* ret){
 	stack<int> tempStack = OffsetStack;
 	int currentOff = tempStack.top();
-	tempStack.pop();
-	int prevOff = tempStack.top();
-	int localOffset = currentOff - prevOff;
+	//tempStack.pop();
+	//int prevOff = tempStack.top();
+	int localOffset = currentOff;// - prevOff;
 	//CodeBuffer::instance().emit("##1###"); //saving space for func args in stack
 	if(localOffset > 0){
 		CodeBuffer::instance().emit("addu $sp,$sp," + toString(localOffset*4)); //saving space for func args in stack
@@ -422,9 +426,11 @@ Statement::Statement(Return* ret,Exp* expression) {
   this->bp.quad = CodeBuffer::instance().genLabel();
   	stack<int> tempStack = OffsetStack;
 	int currentOff = tempStack.top();
-	tempStack.pop();
-	int prevOff = tempStack.top();
-	int localOffset = currentOff - prevOff;
+	//tempStack.pop();
+	//int prevOff = tempStack.top();
+	int localOffset = currentOff ;//- prevOff;
+	//CodeBuffer::instance().emit("#currentOFF" + toString(currentOff));
+	//CodeBuffer::instance().emit("#prevOff" + toString(prevOff));
 	if(localOffset > 0){
 		CodeBuffer::instance().emit("addu $sp,$sp," + toString(localOffset*4)); //saving space for func args in stack
 	}
@@ -786,7 +792,7 @@ Call::Call(Id* id) {
 		exit(0);
 	}
 	this->id = id->name;
-	CodeBuffer::instance().emit("jal " + id->name); //jump to func + stores ra
+	CodeBuffer::instance().emit("jal _" + id->name); //jump to func + stores ra
   	restoreUsedRegs(regs);
 }
 
@@ -838,7 +844,7 @@ Call::Call(Id* id, ExpList* expList) {
 		}
 		j--;
 	}
-	CodeBuffer::instance().emit("jal " + id->name);
+	CodeBuffer::instance().emit("jal _" + id->name);
   	CodeBuffer::instance().emit("addu $sp,$sp," + toString(argsSize*4)); //saves space for all the fun arguments, clearing parameters
   	restoreUsedRegs(regs);	//update the regStack accord.
 }
